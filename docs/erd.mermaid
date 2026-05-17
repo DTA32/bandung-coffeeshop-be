@@ -1,0 +1,102 @@
+---
+title: Entity Relationship Diagram
+---
+
+erDiagram
+    Location {
+        string id PK
+        string name
+        string description
+        string gmaps_id
+        enum type
+        %%"cafe", "poi", "area", "district"%%
+        enum status
+        %%"active", "closed", "deleted"%%
+        geometry coordinates
+    }
+    
+    LocationImage {
+        int id PK
+        string location_id FK
+        string url
+        string description
+    }
+    
+    RatingCategory {
+        int id PK
+        string name
+        string short_description
+        string long_description
+        string slug
+        enum type
+        %%"price", "comfort", "noise", "wifi", "meals", "ambiance", "parking"%%
+        decimal lower_bound
+        decimal upper_bound
+    }
+    
+    Cafe {
+        int id PK
+        string location_id FK
+	    string instagram
+        int open_hour
+        int close_hour
+        boolean is_featured
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    CafeReview {
+        int id PK
+        int cafe_id FK
+        boolean is_subjective
+        decimal overall_score
+        decimal wfc_score
+        decimal personal_score
+        text content
+        date visited_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    CafeRating {
+        int id PK
+        int cafe_id FK
+        int category_id FK
+        decimal score
+        string short_description_override
+    }
+    
+    Tag {
+        int id PK
+        string name
+        string description
+        string slug
+    }
+    
+    CafeTag {
+        int cafe_id FK
+        int tag_id FK
+    }
+
+    CafePrice {
+        int id PK
+        int cafe_id FK
+        int price_range_min
+        int price_range_max
+        int coffee_price_min
+        int coffee_price_max
+        int snack_price_min
+        int snack_price_max
+        int food_price_min
+        int food_price_max
+    }
+
+
+    Cafe ||--|| CafeReview : "has"
+    Cafe ||--o{  CafeRating : "has"
+    Cafe ||--|| CafePrice : "has"
+    Location ||--|| Cafe : "has"
+    RatingCategory ||--o{ CafeRating : "has"
+    Location ||--o{ LocationImage : "has"
+    Cafe ||--o{ CafeTag : "has"
+    Tag ||--o{ CafeTag : "has"
