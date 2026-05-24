@@ -21,6 +21,7 @@ func (r *LocationRepository) Quicksearch(ctx context.Context, q, locType string)
 		 FROM location
 		 WHERE name ILIKE '%' || $1 || '%'
 		   AND ($2 = '' OR type = $2::location_type_enum)
+		   AND status = 'active'
 		 ORDER BY similarity(name, $1) DESC
 		 LIMIT 10`,
 		q, locType,

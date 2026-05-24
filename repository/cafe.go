@@ -124,7 +124,7 @@ func (r *CafeRepository) ResolveFocus(ctx context.Context, id string) (*FocusLoc
 		       ST_Y(ST_Centroid(coordinates)) AS lat,
 		       ST_X(ST_Centroid(coordinates)) AS lng
 		FROM location
-		WHERE id = $1 AND status = 'active'
+		WHERE id = $1 AND status <> 'deleted'
 	`, id).Scan(&f.ID, &f.Name, &f.Type, &f.Description, &f.CenterLat, &f.CenterLng)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrFocusNotFound
