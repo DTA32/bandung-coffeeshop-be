@@ -39,6 +39,9 @@ type FocusLocation struct {
 	Description string
 	CenterLat   float64
 	CenterLng   float64
+	// Ancestors resolved by containment for breadcrumb building.
+	DistrictID, DistrictName *string // containing district (area / poi focus)
+	AreaID, AreaName         *string // containing area (poi focus)
 }
 
 type RatingCategory struct {
@@ -85,6 +88,7 @@ type CafeDetailRow struct {
 	SnackPriceMin, SnackPriceMax   *int
 	FoodPriceMin, FoodPriceMax     *int
 	AreaID, AreaName               *string
+	DistrictID, DistrictName       *string
 }
 
 type CafeImageRow struct{ URL, Alt string }
@@ -118,14 +122,36 @@ type CafeRatingRow struct {
 }
 
 func (r *CafeRepository) ResolveFocus(ctx context.Context, id string) (*FocusLocation, error) {
+	// Resolve the focus location, plus its containing district (area / poi) and
+	// area (poi only) via PostGIS containment so the service can build a
+	// breadcrumb. Cafe focus is intentionally excluded from the LATERAL gates
+	// (no breadcrumb for single-cafe searches).
 	var f FocusLocation
 	err := r.db.QueryRow(ctx, `
-		SELECT id, name, type::text, description,
-		       ST_Y(ST_Centroid(coordinates)) AS lat,
-		       ST_X(ST_Centroid(coordinates)) AS lng
-		FROM location
-		WHERE id = $1 AND status <> 'deleted'
-	`, id).Scan(&f.ID, &f.Name, &f.Type, &f.Description, &f.CenterLat, &f.CenterLng)
+		SELECT l.id, l.name, l.type::text, l.description,
+		       ST_Y(ST_Centroid(l.coordinates)) AS lat,
+		       ST_X(ST_Centroid(l.coordinates)) AS lng,
+		       d.id, d.name, a.id, a.name
+		FROM location l
+		LEFT JOIN LATERAL (
+		    SELECT d.id, d.name FROM location d
+		    WHERE d.type = 'district' AND d.status = 'active' AND d.id <> l.id
+		      AND ST_Within(ST_PointOnSurface(l.coordinates), d.coordinates)
+		    ORDER BY d.id LIMIT 1
+		) d ON l.type IN ('area', 'poi')
+		LEFT JOIN LATERAL (
+		    SELECT a.id, a.name FROM location a
+		    WHERE a.type = 'area' AND a.status = 'active' AND a.id <> l.id
+		      AND ST_Within(ST_PointOnSurface(l.coordinates), a.coordinates)
+		      -- Nearest-area fallback (commented out; strict containment for now):
+		      -- ORDER BY ST_Distance(l.coordinates::geography, a.coordinates::geography) LIMIT 1
+		    ORDER BY a.id LIMIT 1
+		) a ON l.type = 'poi'
+		WHERE l.id = $1 AND l.status <> 'deleted'
+	`, id).Scan(
+		&f.ID, &f.Name, &f.Type, &f.Description, &f.CenterLat, &f.CenterLng,
+		&f.DistrictID, &f.DistrictName, &f.AreaID, &f.AreaName,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrFocusNotFound
 	}
@@ -373,7 +399,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string
 		       cp.coffee_price_min, cp.coffee_price_max,
 		       cp.snack_price_min,  cp.snack_price_max,
 		       cp.food_price_min,   cp.food_price_max,
-		       area.id, area.name
+		       area.id, area.name, district.id, district.name
 		FROM location l
 		JOIN cafe c ON c.location_id = l.id
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
@@ -384,6 +410,13 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string
 		      AND ST_Within(l.coordinates, a.coordinates)
 		    ORDER BY a.id LIMIT 1
 		) area ON TRUE
+		LEFT JOIN LATERAL (
+		    SELECT d.id, d.name
+		    FROM location d
+		    WHERE d.type = 'district' AND d.status = 'active'
+		      AND ST_Within(l.coordinates, d.coordinates)
+		    ORDER BY d.id LIMIT 1
+		) district ON TRUE
 		WHERE l.id = $1 AND l.type = 'cafe'
 	`, locationID).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
@@ -392,7 +425,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string
 		&row.CoffeePriceMin, &row.CoffeePriceMax,
 		&row.SnackPriceMin, &row.SnackPriceMax,
 		&row.FoodPriceMin, &row.FoodPriceMax,
-		&row.AreaID, &row.AreaName,
+		&row.AreaID, &row.AreaName, &row.DistrictID, &row.DistrictName,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrCafeNotFound
