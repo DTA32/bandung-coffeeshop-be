@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 )
 
 var ErrInvalidLocationType = errors.New("invalid location type")
+
+var ErrLocationIsCafe = errors.New("location is a cafe")
 
 var validLocationTypes = map[string]struct{}{
 	constants.LocationTypeCafe:     {},
@@ -48,4 +51,81 @@ func (s *LocationService) Quicksearch(ctx context.Context, q, locType string) ([
 		}
 	}
 	return s.repo.Quicksearch(ctx, q, locType)
+}
+
+// GetByID assembles a single location's detail. Cafes are rejected with
+// ErrLocationIsCafe so callers use the dedicated cafe endpoint instead.
+func (s *LocationService) GetByID(ctx context.Context, id string) (*model.LocationDetail, error) {
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if row.Type == constants.LocationTypeCafe {
+		return nil, ErrLocationIsCafe
+	}
+
+	ancestors, err := s.repo.Ancestors(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	descendants, err := s.repo.Descendants(ctx, row)
+	if err != nil {
+		return nil, err
+	}
+	images, err := s.repo.Images(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.LocationDetail{
+		ID:              row.ID,
+		Name:            row.Name,
+		Description:     row.Description,
+		Type:            row.Type,
+		Ancestors:       ancestors,
+		Descendants:     descendants,
+		Images:          images,
+		ShowWelcomeText: row.Type == constants.LocationTypeArea,
+		ShowMap:         row.Type == constants.LocationTypeDistrict,
+		Polygon:         polygonJSON(row.PolygonGeoJSON),
+	}, nil
+}
+
+// ListDistricts is the no-id fallback: every district with its flat descendants
+// (areas + pois) and images.
+func (s *LocationService) ListDistricts(ctx context.Context) ([]model.LocationDetail, error) {
+	districts, err := s.repo.Districts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]model.LocationDetail, 0, len(districts))
+	for i := range districts {
+		d := districts[i]
+		descendants, err := s.repo.Descendants(ctx, &d)
+		if err != nil {
+			return nil, err
+		}
+		images, err := s.repo.Images(ctx, d.ID)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, model.LocationDetail{
+			ID:          d.ID,
+			Name:        d.Name,
+			Type:        d.Type,
+			Descendants: descendants,
+			Images:      images,
+		})
+	}
+	return summaries, nil
+}
+
+// polygonJSON wraps a raw GeoJSON string so it embeds as a JSON object; a nil
+// geometry marshals to JSON null.
+func polygonJSON(geojson *string) json.RawMessage {
+	if geojson == nil {
+		return nil
+	}
+	return json.RawMessage(*geojson)
 }

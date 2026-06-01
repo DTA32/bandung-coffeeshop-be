@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/dta32/bandung-coffeeshop-be/helper"
+	"github.com/dta32/bandung-coffeeshop-be/repository"
 	"github.com/dta32/bandung-coffeeshop-be/service"
 	"github.com/gin-gonic/gin"
 )
@@ -32,4 +33,33 @@ func (h *LocationHandler) Quicksearch(c *gin.Context) {
 	}
 
 	helper.Success(c, results)
+}
+
+func (h *LocationHandler) GetByID(c *gin.Context) {
+	id := c.Param("id")
+
+	res, err := h.svc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrLocationIsCafe):
+			helper.Error(c, http.StatusBadRequest, "location is a cafe; use the cafe endpoint")
+		case errors.Is(err, repository.ErrLocationNotFound):
+			helper.Error(c, http.StatusNotFound, "location not found")
+		default:
+			helper.Error(c, http.StatusInternalServerError, "failed to fetch location")
+		}
+		return
+	}
+
+	helper.Success(c, res)
+}
+
+func (h *LocationHandler) List(c *gin.Context) {
+	res, err := h.svc.ListDistricts(c.Request.Context())
+	if err != nil {
+		helper.Error(c, http.StatusInternalServerError, "failed to list districts")
+		return
+	}
+
+	helper.Success(c, res)
 }
