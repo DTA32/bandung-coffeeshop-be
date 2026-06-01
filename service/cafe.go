@@ -72,7 +72,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	)
 
 	if req.QueryID != "" {
-		focus, err = s.repo.ResolveFocus(ctx, req.QueryID)
+		focus, err = s.repo.ResolveFocus(ctx, req.QueryID, req.QueryType)
 		if err != nil {
 			return nil, err
 		}

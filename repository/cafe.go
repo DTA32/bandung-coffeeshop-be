@@ -121,7 +121,7 @@ type CafeRatingRow struct {
 	UpperBound   float64
 }
 
-func (r *CafeRepository) ResolveFocus(ctx context.Context, id string) (*FocusLocation, error) {
+func (r *CafeRepository) ResolveFocus(ctx context.Context, id string, queryType string) (*FocusLocation, error) {
 	// Resolve the focus location, plus its containing district (area / poi) and
 	// area (poi only) via PostGIS containment so the service can build a
 	// breadcrumb. Cafe focus is intentionally excluded from the LATERAL gates
@@ -147,8 +147,8 @@ func (r *CafeRepository) ResolveFocus(ctx context.Context, id string) (*FocusLoc
 		      -- ORDER BY ST_Distance(l.coordinates::geography, a.coordinates::geography) LIMIT 1
 		    ORDER BY a.id LIMIT 1
 		) a ON l.type = 'poi'
-		WHERE l.id = $1 AND l.status <> 'deleted'
-	`, id).Scan(
+		WHERE l.id = $1 AND l.type = $2 AND l.status <> 'deleted'
+	`, id, queryType).Scan(
 		&f.ID, &f.Name, &f.Type, &f.Description, &f.CenterLat, &f.CenterLng,
 		&f.DistrictID, &f.DistrictName, &f.AreaID, &f.AreaName,
 	)
