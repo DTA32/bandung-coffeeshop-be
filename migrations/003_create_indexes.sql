@@ -11,6 +11,16 @@ CREATE INDEX IF NOT EXISTS idx_location_area_coordinates_gist
     ON location USING GIST (coordinates)
     WHERE type = 'area' AND status = 'active';
 
+-- 2b. Partial GIST for district containment, mirroring the area index above.
+--     Used by the quicksearch ancestors LATERAL and the cafe-search breadcrumb
+--     (ResolveFocus), which resolve a location's containing district via
+--     ST_Within(point, district.coordinates) filtered type='district' AND
+--     status='active'. Without this, district lookups fall back to the general
+--     coordinates index, which holds every geometry and is far less selective.
+CREATE INDEX IF NOT EXISTS idx_location_district_coordinates_gist
+    ON location USING GIST (coordinates)
+    WHERE type = 'district' AND status = 'active';
+
 -- 3. Slug lookups. Both columns are nullable by design (rows without a slug
 --    are display-only and not searchable). Partial UNIQUE indexes:
 --    searchable rows are guaranteed unique; NULL-slug rows coexist freely.

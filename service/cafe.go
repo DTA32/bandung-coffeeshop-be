@@ -161,10 +161,34 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		LocationName:          locationName,
 		FormattedLocationName: formattedName,
 		SearchDescription:     searchDescription,
+		Locations:             buildBreadcrumb(focus),
 		Cafes:                 cafes,
 		Page:                  req.Page,
 		Size:                  req.Size,
 	}, nil
+}
+
+// buildBreadcrumb returns the focus location's ancestor chain, outermost to
+// innermost and including the focus itself, for district / area / poi focus.
+// Cafe / coordinate / global searches return an empty (non-nil) slice.
+func buildBreadcrumb(focus *repository.FocusLocation) []model.Location {
+	crumbs := []model.Location{}
+	if focus == nil {
+		return crumbs
+	}
+	switch focus.Type {
+	case constants.LocationTypeArea, constants.LocationTypePOI:
+		if focus.DistrictID != nil {
+			crumbs = append(crumbs, model.Location{ID: *focus.DistrictID, Name: *focus.DistrictName, Type: constants.LocationTypeDistrict})
+		}
+		if focus.Type == constants.LocationTypePOI && focus.AreaID != nil {
+			crumbs = append(crumbs, model.Location{ID: *focus.AreaID, Name: *focus.AreaName, Type: constants.LocationTypeArea})
+		}
+		crumbs = append(crumbs, model.Location{ID: focus.ID, Name: focus.Name, Type: focus.Type})
+	case constants.LocationTypeDistrict:
+		crumbs = append(crumbs, model.Location{ID: focus.ID, Name: focus.Name, Type: focus.Type})
+	}
+	return crumbs
 }
 
 func (s *CafeService) validate(req *model.CafeSearchRequest) error {
@@ -321,9 +345,13 @@ func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.Ca
 		desc = &row.Description
 	}
 
-	var loc *model.CafeLocation
+	// Ancestor chain, outermost to innermost: district then area.
+	loc := []model.Location{}
+	if row.DistrictID != nil {
+		loc = append(loc, model.Location{ID: *row.DistrictID, Name: *row.DistrictName, Type: constants.LocationTypeDistrict})
+	}
 	if row.AreaID != nil {
-		loc = &model.CafeLocation{ID: *row.AreaID, Name: *row.AreaName}
+		loc = append(loc, model.Location{ID: *row.AreaID, Name: *row.AreaName, Type: constants.LocationTypeArea})
 	}
 
 	return &model.CafeDetailResponse{
@@ -336,7 +364,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.Ca
 		OpenHour:    row.OpenHour,
 		CloseHour:   row.CloseHour,
 		GmapsID:     row.GmapsID,
-		Location:    loc,
+		Locations:   loc,
 		Price: model.CafePrice{
 			PriceRangeMin:  row.PriceRangeMin,
 			PriceRangeMax:  row.PriceRangeMax,
