@@ -72,7 +72,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	)
 
 	if req.QueryID != "" {
-		focus, err = s.repo.ResolveFocus(ctx, req.QueryID)
+		focus, err = s.repo.ResolveFocus(ctx, req.QueryID, req.QueryType)
 		if err != nil {
 			return nil, err
 		}
@@ -330,9 +330,9 @@ func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.Ca
 		return nil, err
 	}
 
-	imgs := make([]model.CafeImage, 0, len(images))
+	imgs := make([]model.LocationImage, 0, len(images))
 	for _, img := range images {
-		imgs = append(imgs, model.CafeImage{URL: img.URL, Alt: img.Alt})
+		imgs = append(imgs, model.LocationImage{URL: img.URL, Description: img.Alt})
 	}
 
 	var rank *model.CafeRank

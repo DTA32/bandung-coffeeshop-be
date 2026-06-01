@@ -43,22 +43,17 @@ type CafeSearchResponse struct {
 }
 
 type CafeDetailResponse struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Description *string     `json:"description"`
-	Status      string      `json:"status"`
-	Images      []CafeImage `json:"images"`
-	Instagram   *string     `json:"instagram"`
-	OpenHour    *string     `json:"open_hour"`
-	CloseHour   *string     `json:"close_hour"`
-	GmapsID     *string     `json:"gmaps_id"`
-	Locations   []Location  `json:"locations"`
-	Price       CafePrice   `json:"price"`
-}
-
-type CafeImage struct {
-	URL string `json:"url"`
-	Alt string `json:"alt"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description *string         `json:"description"`
+	Status      string          `json:"status"`
+	Images      []LocationImage `json:"images"`
+	Instagram   *string         `json:"instagram"`
+	OpenHour    *string         `json:"open_hour"`
+	CloseHour   *string         `json:"close_hour"`
+	GmapsID     *string         `json:"gmaps_id"`
+	Locations   []Location     `json:"locations"`
+	Price       CafePrice       `json:"price"`
 }
 
 type CafePrice struct {
