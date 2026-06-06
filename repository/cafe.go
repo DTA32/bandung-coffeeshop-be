@@ -342,7 +342,11 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			sb.WriteString(`cp.price_range_min ASC NULLS LAST`)
 		}
 	default:
-		sb.WriteString(`c.is_featured DESC, c.updated_at DESC, distance_m ASC NULLS LAST`)
+		if p.Mode == SearchModeRadius {
+			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, c.updated_at DESC`)
+		} else {
+			sb.WriteString(`c.is_featured DESC, c.updated_at DESC, distance_m ASC NULLS LAST`)
+		}
 	}
 
 	sizeP := addArg(p.Size)
