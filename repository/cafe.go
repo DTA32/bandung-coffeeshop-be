@@ -349,6 +349,9 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		}
 	}
 
+	// Sorting tiebreaker
+	sb.WriteString(`, l.id ASC`)
+
 	sizeP := addArg(p.Size)
 	offsetP := addArg((p.Page - 1) * p.Size)
 	sb.WriteString(fmt.Sprintf(` LIMIT %s OFFSET %s`, sizeP, offsetP))
