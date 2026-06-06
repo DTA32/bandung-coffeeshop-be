@@ -167,7 +167,10 @@ func (r *LocationRepository) Descendants(ctx context.Context, row *LocationDetai
 	switch row.Type {
 	case "district":
 		return r.queryDescendants(ctx, `
-			SELECT a.id, a.name, 'area'::text
+			SELECT a.id, a.name, 'area'::text,
+			       (SELECT li.url FROM location_image li
+			        WHERE li.location_id = a.id
+			        ORDER BY li.display_order ASC, li.id ASC LIMIT 1) AS thumbnail
 			FROM location a
 			WHERE a.type = 'area' AND a.status = 'active'
 			  AND ST_Within(ST_Centroid(a.coordinates), (SELECT coordinates FROM location WHERE id = $1))
@@ -175,7 +178,10 @@ func (r *LocationRepository) Descendants(ctx context.Context, row *LocationDetai
 		`, row.ID)
 	case "area":
 		return r.queryDescendants(ctx, `
-			SELECT p.id, p.name, 'poi'::text
+			SELECT p.id, p.name, 'poi'::text,
+			       (SELECT li.url FROM location_image li
+			        WHERE li.location_id = p.id
+			        ORDER BY li.display_order ASC, li.id ASC LIMIT 1) AS thumbnail
 			FROM location p
 			WHERE p.type = 'poi' AND p.status = 'active'
 			  AND ST_Within(p.coordinates, (SELECT coordinates FROM location WHERE id = $1))
@@ -196,7 +202,7 @@ func (r *LocationRepository) queryDescendants(ctx context.Context, sql, id strin
 	descendants := []model.Location{}
 	for rows.Next() {
 		var d model.Location
-		if err := rows.Scan(&d.ID, &d.Name, &d.Type); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.Thumbnail); err != nil {
 			return nil, err
 		}
 		descendants = append(descendants, d)
