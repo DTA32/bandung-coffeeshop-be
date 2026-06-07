@@ -28,7 +28,7 @@ const (
 	defaultPageNum   = 1
 	defaultPageSize  = 8
 	maxPageSize      = 50
-	defaultRadiusMax = 5000 // in meters
+	defaultRadiusMax = 3000 // in meters
 )
 
 var validSorts = map[string]struct{}{
