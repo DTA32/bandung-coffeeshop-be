@@ -3,9 +3,10 @@ package model
 import "encoding/json"
 
 type Location struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Thumbnail *string `json:"thumbnail"`
 }
 
 type QuicksearchResult struct {

@@ -109,12 +109,14 @@ func (r *LocationRepository) GetByID(ctx context.Context, id string) (*LocationD
 }
 
 // Ancestors returns the spatial parents of a location ordered district -> area.
-// Containment is computed against the location's centroid so it works for both
-// polygon (area-in-district) and point (poi-in-area) children.
+// Containment is computed against a point guaranteed to lie on the location's
+// surface (ST_PointOnSurface) so it works for both polygon (area-in-district)
+// and point (poi-in-area) children; a centroid can fall outside a concave or
+// multipolygon child and resolve the wrong parent.
 func (r *LocationRepository) Ancestors(ctx context.Context, id string) ([]model.Location, error) {
 	rows, err := r.db.Query(ctx, `
 		WITH t AS (
-			SELECT id, type, ST_Centroid(coordinates) AS c
+			SELECT id, type, ST_PointOnSurface(coordinates) AS c
 			FROM location WHERE id = $1
 		)
 		SELECT DISTINCT ON (a.type) a.id, a.name, a.type::text
@@ -160,22 +162,30 @@ func (r *LocationRepository) Ancestors(ctx context.Context, id string) ([]model.
 }
 
 // Descendants returns the direct spatial children of a location: a district's
-// areas, or an area's pois. Containment uses the child's centroid so it works
-// for both polygon (area-in-district) and point (poi-in-area) children. Pois
-// (and anything else) have no descendants.
+// areas, or an area's pois. Containment uses a point guaranteed to lie on the
+// child's surface (ST_PointOnSurface) so it works for both polygon
+// (area-in-district) and point (poi-in-area) children; a centroid can fall
+// outside a concave or multipolygon child and be wrongly excluded. Pois (and
+// anything else) have no descendants.
 func (r *LocationRepository) Descendants(ctx context.Context, row *LocationDetailRow) ([]model.Location, error) {
 	switch row.Type {
 	case "district":
 		return r.queryDescendants(ctx, `
-			SELECT a.id, a.name, 'area'::text
+			SELECT a.id, a.name, 'area'::text,
+			       (SELECT li.url FROM location_image li
+			        WHERE li.location_id = a.id
+			        ORDER BY li.display_order ASC, li.id ASC LIMIT 1) AS thumbnail
 			FROM location a
 			WHERE a.type = 'area' AND a.status = 'active'
-			  AND ST_Within(ST_Centroid(a.coordinates), (SELECT coordinates FROM location WHERE id = $1))
+			  AND ST_Within(ST_PointOnSurface(a.coordinates), (SELECT coordinates FROM location WHERE id = $1))
 			ORDER BY a.name
 		`, row.ID)
 	case "area":
 		return r.queryDescendants(ctx, `
-			SELECT p.id, p.name, 'poi'::text
+			SELECT p.id, p.name, 'poi'::text,
+			       (SELECT li.url FROM location_image li
+			        WHERE li.location_id = p.id
+			        ORDER BY li.display_order ASC, li.id ASC LIMIT 1) AS thumbnail
 			FROM location p
 			WHERE p.type = 'poi' AND p.status = 'active'
 			  AND ST_Within(p.coordinates, (SELECT coordinates FROM location WHERE id = $1))
@@ -196,7 +206,7 @@ func (r *LocationRepository) queryDescendants(ctx context.Context, sql, id strin
 	descendants := []model.Location{}
 	for rows.Next() {
 		var d model.Location
-		if err := rows.Scan(&d.ID, &d.Name, &d.Type); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.Thumbnail); err != nil {
 			return nil, err
 		}
 		descendants = append(descendants, d)

@@ -52,7 +52,7 @@ type CafeDetailResponse struct {
 	OpenHour    *string         `json:"open_hour"`
 	CloseHour   *string         `json:"close_hour"`
 	GmapsID     *string         `json:"gmaps_id"`
-	Locations   []Location     `json:"locations"`
+	Locations   []Location      `json:"locations"`
 	Price       CafePrice       `json:"price"`
 }
 

@@ -114,6 +114,7 @@ func (s *LocationService) ListDistricts(ctx context.Context) ([]model.LocationDe
 			ID:          d.ID,
 			Name:        d.Name,
 			Type:        d.Type,
+			Ancestors:   []model.Location{},
 			Descendants: descendants,
 			Images:      images,
 		})
