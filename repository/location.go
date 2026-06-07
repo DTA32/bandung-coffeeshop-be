@@ -109,12 +109,14 @@ func (r *LocationRepository) GetByID(ctx context.Context, id string) (*LocationD
 }
 
 // Ancestors returns the spatial parents of a location ordered district -> area.
-// Containment is computed against the location's centroid so it works for both
-// polygon (area-in-district) and point (poi-in-area) children.
+// Containment is computed against a point guaranteed to lie on the location's
+// surface (ST_PointOnSurface) so it works for both polygon (area-in-district)
+// and point (poi-in-area) children; a centroid can fall outside a concave or
+// multipolygon child and resolve the wrong parent.
 func (r *LocationRepository) Ancestors(ctx context.Context, id string) ([]model.Location, error) {
 	rows, err := r.db.Query(ctx, `
 		WITH t AS (
-			SELECT id, type, ST_Centroid(coordinates) AS c
+			SELECT id, type, ST_PointOnSurface(coordinates) AS c
 			FROM location WHERE id = $1
 		)
 		SELECT DISTINCT ON (a.type) a.id, a.name, a.type::text
@@ -160,9 +162,11 @@ func (r *LocationRepository) Ancestors(ctx context.Context, id string) ([]model.
 }
 
 // Descendants returns the direct spatial children of a location: a district's
-// areas, or an area's pois. Containment uses the child's centroid so it works
-// for both polygon (area-in-district) and point (poi-in-area) children. Pois
-// (and anything else) have no descendants.
+// areas, or an area's pois. Containment uses a point guaranteed to lie on the
+// child's surface (ST_PointOnSurface) so it works for both polygon
+// (area-in-district) and point (poi-in-area) children; a centroid can fall
+// outside a concave or multipolygon child and be wrongly excluded. Pois (and
+// anything else) have no descendants.
 func (r *LocationRepository) Descendants(ctx context.Context, row *LocationDetailRow) ([]model.Location, error) {
 	switch row.Type {
 	case "district":
@@ -173,7 +177,7 @@ func (r *LocationRepository) Descendants(ctx context.Context, row *LocationDetai
 			        ORDER BY li.display_order ASC, li.id ASC LIMIT 1) AS thumbnail
 			FROM location a
 			WHERE a.type = 'area' AND a.status = 'active'
-			  AND ST_Within(ST_Centroid(a.coordinates), (SELECT coordinates FROM location WHERE id = $1))
+			  AND ST_Within(ST_PointOnSurface(a.coordinates), (SELECT coordinates FROM location WHERE id = $1))
 			ORDER BY a.name
 		`, row.ID)
 	case "area":
