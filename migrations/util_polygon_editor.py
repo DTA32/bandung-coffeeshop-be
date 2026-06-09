@@ -3,17 +3,19 @@
 Two-way polygon editor helper for location rows.
 
 Usage:
-  # Export — prints a geojson.io edit URL and saves the polygon to a file
-  python3 migrations/util_polygon_editor.py export <location_id>
+  # Export — saves the polygon(s) to a file and (if small enough) prints a
+  # geojson.io edit URL. Pass several ids to bundle them into one GeoJSON,
+  # handy for checking area coverage when building a district.
+  python3 migrations/util_polygon_editor.py export <location_id> [<location_id> ...]
 
   # Import — reads a .geojson file and updates the DB row
   python3 migrations/util_polygon_editor.py import <location_id> <file.geojson>
 
 Workflow:
-  1. Export to get the geojson.io URL.
+  1. Export to get the geojson.io URL (or the saved file for multiple ids).
   2. Edit the polygon in the browser.
   3. In geojson.io: Save → GeoJSON (downloads a file).
-  4. Import that file back.
+  4. Import that file back (one location at a time).
 """
 
 import json
@@ -50,50 +52,56 @@ def get_dsn() -> str:
     )
 
 
-def cmd_export(location_id: str) -> None:
+def cmd_export(location_ids: list[str]) -> None:
     with psycopg2.connect(get_dsn()) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT name, ST_AsGeoJSON(coordinates) FROM location WHERE id = %s",
-                (location_id,),
+                "SELECT id, name, ST_AsGeoJSON(coordinates) "
+                "FROM location WHERE id = ANY(%s) AND coordinates IS NOT NULL",
+                (location_ids,),
             )
-            row = cur.fetchone()
+            rows = cur.fetchall()
 
-    if not row:
-        print(f"No location found with id '{location_id}'")
+    if not rows:
+        print(f"No locations with a polygon found for: {', '.join(location_ids)}")
         sys.exit(1)
 
-    name, geojson_str = row
-    geometry = json.loads(geojson_str)
+    found = {row[0] for row in rows}
+    missing = [lid for lid in location_ids if lid not in found]
 
     feature_collection = {
         "type": "FeatureCollection",
         "features": [
             {
                 "type": "Feature",
-                "properties": {"id": location_id, "name": name},
-                "geometry": geometry,
+                "properties": {"id": loc_id, "name": name},
+                "geometry": json.loads(geojson_str),
             }
+            for loc_id, name, geojson_str in rows
         ],
     }
 
-    with open(f"{location_id}.geojson", "w", encoding="utf-8") as f:
+    # Single id keeps the "<id>.geojson" name; multiple ids bundle into one file.
+    out_file = f"{location_ids[0]}.geojson" if len(location_ids) == 1 else "multi_export.geojson"
+    with open(out_file, "w", encoding="utf-8") as f:
         json.dump(feature_collection, f, indent=2)
-    print(f"Saved to: {location_id}.geojson")
+    print(f"Saved {len(rows)} location(s) to: {out_file}")
+    if missing:
+        print(f"Not found or no polygon (skipped): {', '.join(missing)}")
 
     encoded = urllib.parse.quote(json.dumps(feature_collection))
     url = f"https://geojson.io/#data=data:application/json,{encoded}"
 
-    # geojson.io has a URL length limit — warn if the polygon is very large
+    # geojson.io has a URL length limit — warn if the polygon(s) are too large
     if len(url) > 8000:
-        print("\nPolygon is too large for a URL. Open geojson.io and drag the saved file in instead:")
+        print("\nPolygon data is too large for a URL. Open geojson.io and drag the saved file in instead:")
         print("  https://geojson.io")
-        print(f"  Then drag & drop: {location_id}.geojson")
+        print(f"  Then drag & drop: {out_file}")
     else:
         print(f"\nOpen in geojson.io:\n  {url}")
 
-    print(f"\nAfter editing, save as GeoJSON from geojson.io (Save → GeoJSON), then run:")
-    print(f"  python3 migrations/polygon_editor.py import {location_id} <downloaded_file.geojson>")
+    print("\nAfter editing, save as GeoJSON from geojson.io (Save → GeoJSON), then import each id with:")
+    print("  python3 migrations/util_polygon_editor.py import <location_id> <downloaded_file.geojson>")
 
 
 def cmd_import(location_id: str, geojson_file: str) -> None:
@@ -164,7 +172,7 @@ def main() -> None:
 
     cmd = args[0]
     if cmd == "export":
-        cmd_export(args[1])
+        cmd_export(args[1:])
     elif cmd == "import":
         if len(args) < 3:
             print("Usage: polygon_editor.py import <location_id> <file.geojson>")

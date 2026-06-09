@@ -144,6 +144,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		cafes = append(cafes, model.CafeDetail{
 			ID:          r.ID,
 			Name:        r.Name,
+			Description: r.Description,
 			Coordinates: coords,
 			Thumbnail:   r.Thumbnail,
 			Area:        r.Area,

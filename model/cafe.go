@@ -23,6 +23,7 @@ type CafeSearchRequest struct {
 type CafeDetail struct {
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
+	Description string       `json:"description"`
 	Coordinates *Coordinates `json:"coordinates"`
 	Thumbnail   *string      `json:"thumbnail"`
 	Area        *string      `json:"area"`

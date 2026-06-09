@@ -199,6 +199,7 @@ func (r *CafeRepository) TagBySlug(ctx context.Context, slug string) (*Tag, erro
 type CafeSearchRow struct {
 	ID            string
 	Name          string
+	Description   string
 	Lat           *float64
 	Lng           *float64
 	Thumbnail     *string
@@ -229,6 +230,7 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	sb.WriteString(`SELECT
 		l.id,
 		l.name,
+		l.description,
 		ST_Y(l.coordinates) AS lat,
 		ST_X(l.coordinates) AS lng,
 		(SELECT li.url FROM location_image li
@@ -374,6 +376,7 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		if err := rows.Scan(
 			&row.ID,
 			&row.Name,
+			&row.Description,
 			&row.Lat,
 			&row.Lng,
 			&row.Thumbnail,
