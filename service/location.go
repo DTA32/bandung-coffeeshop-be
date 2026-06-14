@@ -77,6 +77,9 @@ func (s *LocationService) GetByID(ctx context.Context, id string) (*model.Locati
 		return nil, err
 	}
 
+	// map always shown on districts, and will be shown when location have no images
+	showMap := row.Type == constants.LocationTypeDistrict || len(images) == 0
+
 	return &model.LocationDetail{
 		ID:              row.ID,
 		Name:            row.Name,
@@ -86,7 +89,7 @@ func (s *LocationService) GetByID(ctx context.Context, id string) (*model.Locati
 		Descendants:     descendants,
 		Images:          images,
 		ShowWelcomeText: row.Type == constants.LocationTypeArea,
-		ShowMap:         row.Type == constants.LocationTypeDistrict,
+		ShowMap:         showMap,
 		Polygon:         polygonJSON(row.PolygonGeoJSON),
 	}, nil
 }
