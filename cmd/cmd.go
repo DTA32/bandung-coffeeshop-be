@@ -46,6 +46,10 @@ func main() {
 	cafeSvc := service.NewCafeService(cafeRepo)
 	cafeHdlr := handler.NewCafeHandler(cafeSvc)
 
+	filterRepo := repository.NewFilterRepository(pool)
+	filterSvc := service.NewFilterService(filterRepo)
+	filterHdlr := handler.NewFilterHandler(filterSvc)
+
 	r := gin.Default()
 	r.Use(cors.New(corsConfig))
 	r.GET("/health", handler.Health)
@@ -58,6 +62,7 @@ func main() {
 		v1.GET("/search/cafes", cafeHdlr.Search)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
+		v1.GET("/filters", filterHdlr.Get)
 	}
 
 	log.Printf("starting server on :%s", cfg.AppPort)

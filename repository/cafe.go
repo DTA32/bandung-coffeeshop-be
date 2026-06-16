@@ -77,17 +77,25 @@ type CafeSearchParams struct {
 	RadiusMax    *int
 	ExcludeIDs   []string
 
-	TagSlug            string
-	RatingCategoryType string
-	RatingLowerBound   *float64
-	RatingUpperBound   *float64
-	IsFeatured         *bool
+	TagSlugs      []string
+	RatingFilters []RatingFilterParam
+	OpenHour      *string
+	PriceMin      *int
+	PriceMax      *int
+	IsFeatured    *bool
 
 	Lang  string
 	Sort  string
 	Order string
 	Page  int
 	Size  int
+}
+
+// RatingFilterParam is a resolved rating-category bucket: the category type and
+// the score bounds the cafe's score must fall within.
+type RatingFilterParam struct {
+	Type         string
+	Lower, Upper float64
 }
 
 type CafeDetailRow struct {
@@ -191,6 +199,31 @@ func (r *CafeRepository) RatingCategoryBySlug(ctx context.Context, categoryType,
 	return &rc, nil
 }
 
+// RatingCategoriesByIDs resolves a set of rating_category bucket ids to their
+// type and score bounds. Ids not found are simply absent from the result, so
+// the caller can detect unknown ids by comparing lengths.
+func (r *CafeRepository) RatingCategoriesByIDs(ctx context.Context, ids []int) ([]RatingCategory, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, type::text, COALESCE(slug, ''), lower_bound, upper_bound
+		FROM rating_category
+		WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []RatingCategory
+	for rows.Next() {
+		var rc RatingCategory
+		if err := rows.Scan(&rc.ID, &rc.Type, &rc.Slug, &rc.LowerBound, &rc.UpperBound); err != nil {
+			return nil, err
+		}
+		results = append(results, rc)
+	}
+	return results, rows.Err()
+}
+
 func (r *CafeRepository) TagBySlug(ctx context.Context, slug, lang string) (*Tag, error) {
 	var t Tag
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
@@ -274,21 +307,19 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		JOIN location l ON l.id = c.location_id AND l.status = 'active'
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`)
 
-	if p.TagSlug != "" {
-		slugP := addArg(p.TagSlug)
+	// One aliased join per selected rating bucket. cafe_rating is UNIQUE on
+	// (cafe_id, category_type), so each join matches at most one row — no row
+	// fan-out, and AND across categories is the natural intersection.
+	for i, rf := range p.RatingFilters {
+		alias := fmt.Sprintf("cr%d", i)
+		typeP := addArg(rf.Type)
+		lbP := addArg(rf.Lower)
+		ubP := addArg(rf.Upper)
 		sb.WriteString(fmt.Sprintf(`
-		JOIN cafe_tag ctf ON ctf.cafe_id = c.id AND ctf.visible = TRUE
-		JOIN tag tf ON tf.id = ctf.tag_id AND tf.slug = %s`, slugP))
-	}
-
-	if p.RatingCategoryType != "" && p.RatingLowerBound != nil && p.RatingUpperBound != nil {
-		typeP := addArg(p.RatingCategoryType)
-		lbP := addArg(*p.RatingLowerBound)
-		ubP := addArg(*p.RatingUpperBound)
-		sb.WriteString(fmt.Sprintf(`
-		JOIN cafe_rating cr ON cr.cafe_id = c.id
-			AND cr.category_type = %s::rating_category_type_enum
-			AND cr.score >= %s AND cr.score <= %s`, typeP, lbP, ubP))
+		JOIN cafe_rating %s ON %s.cafe_id = c.id
+			AND %s.category_type = %s::rating_category_type_enum
+			AND %s.score >= %s AND %s.score <= %s`,
+			alias, alias, alias, typeP, alias, lbP, alias, ubP))
 	}
 
 	if p.Sort == constants.SortRating {
@@ -321,6 +352,44 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		fP := addArg(*p.IsFeatured)
 		sb.WriteString(fmt.Sprintf(`
 			AND c.is_featured = %s`, fP))
+	}
+
+	// Tags (AND): cafe must carry every selected slug. Expressed as a subquery
+	// rather than joins so it can't fan out rows and break COUNT(*) OVER().
+	if len(p.TagSlugs) > 0 {
+		tagsP := addArg(p.TagSlugs)
+		nP := addArg(len(p.TagSlugs))
+		sb.WriteString(fmt.Sprintf(`
+			AND c.id IN (
+				SELECT ct.cafe_id FROM cafe_tag ct
+				JOIN tag t ON t.id = ct.tag_id
+				WHERE ct.visible = TRUE AND t.slug = ANY(%s)
+				GROUP BY ct.cafe_id HAVING COUNT(DISTINCT t.slug) = %s)`, tagsP, nP))
+	}
+
+	// Price (overlap): the cafe's [min,max] band intersects the selected
+	// window. Each bound is independent; NULL price bands are excluded once a
+	// bound is active (NULL comparisons yield false).
+	if p.PriceMin != nil {
+		pMinP := addArg(*p.PriceMin)
+		sb.WriteString(fmt.Sprintf(`
+			AND cp.price_range_max >= %s`, pMinP))
+	}
+	if p.PriceMax != nil {
+		pMaxP := addArg(*p.PriceMax)
+		sb.WriteString(fmt.Sprintf(`
+			AND cp.price_range_min <= %s`, pMaxP))
+	}
+
+	// Open hours: cafe is open at the given time. Handles overnight ranges
+	// (close < open) and excludes cafes with unknown (NULL) hours.
+	if p.OpenHour != nil {
+		ohP := addArg(*p.OpenHour)
+		sb.WriteString(fmt.Sprintf(`
+			AND c.open_hour IS NOT NULL AND c.close_hour IS NOT NULL AND (
+				(c.close_hour >= c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
+				OR (c.close_hour < c.open_hour AND (%s::time >= c.open_hour OR %s::time <= c.close_hour)))`,
+			ohP, ohP, ohP, ohP))
 	}
 
 	if len(p.ExcludeIDs) > 0 {
