@@ -38,7 +38,7 @@ func (h *LocationHandler) Quicksearch(c *gin.Context) {
 func (h *LocationHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 
-	res, err := h.svc.GetByID(c.Request.Context(), id)
+	res, err := h.svc.GetByID(c.Request.Context(), id, helper.Lang(c))
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrLocationIsCafe):
@@ -55,7 +55,7 @@ func (h *LocationHandler) GetByID(c *gin.Context) {
 }
 
 func (h *LocationHandler) List(c *gin.Context) {
-	res, err := h.svc.ListDistricts(c.Request.Context())
+	res, err := h.svc.ListDistricts(c.Request.Context(), helper.Lang(c))
 	if err != nil {
 		helper.Error(c, http.StatusInternalServerError, "failed to list districts")
 		return

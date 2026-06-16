@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
@@ -92,13 +93,13 @@ type LocationDetailRow struct {
 }
 
 // GetByID fetches a single non-deleted location with its geometry as GeoJSON.
-func (r *LocationRepository) GetByID(ctx context.Context, id string) (*LocationDetailRow, error) {
+func (r *LocationRepository) GetByID(ctx context.Context, id, lang string) (*LocationDetailRow, error) {
 	var row LocationDetailRow
-	err := r.db.QueryRow(ctx, `
-		SELECT id, name, description, type::text, ST_AsGeoJSON(coordinates)
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, name, %s, type::text, ST_AsGeoJSON(coordinates)
 		FROM location
 		WHERE id = $1 AND status <> 'deleted'
-	`, id).Scan(&row.ID, &row.Name, &row.Description, &row.Type, &row.PolygonGeoJSON)
+	`, localized("$2", "description_indo", "description")), id, lang).Scan(&row.ID, &row.Name, &row.Description, &row.Type, &row.PolygonGeoJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrLocationNotFound
 	}
@@ -215,13 +216,13 @@ func (r *LocationRepository) queryDescendants(ctx context.Context, sql, id strin
 }
 
 // Images returns a location's images ordered by display_order (then id).
-func (r *LocationRepository) Images(ctx context.Context, id string) ([]model.LocationImage, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT url, description
+func (r *LocationRepository) Images(ctx context.Context, id, lang string) ([]model.LocationImage, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT url, %s
 		FROM location_image
 		WHERE location_id = $1
 		ORDER BY display_order ASC, id ASC
-	`, id)
+	`, localized("$2", "description_indo", "description")), id, lang)
 	if err != nil {
 		return nil, err
 	}

@@ -55,8 +55,8 @@ func (s *LocationService) Quicksearch(ctx context.Context, q, locType string) ([
 
 // GetByID assembles a single location's detail. Cafes are rejected with
 // ErrLocationIsCafe so callers use the dedicated cafe endpoint instead.
-func (s *LocationService) GetByID(ctx context.Context, id string) (*model.LocationDetail, error) {
-	row, err := s.repo.GetByID(ctx, id)
+func (s *LocationService) GetByID(ctx context.Context, id, lang string) (*model.LocationDetail, error) {
+	row, err := s.repo.GetByID(ctx, id, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +72,13 @@ func (s *LocationService) GetByID(ctx context.Context, id string) (*model.Locati
 	if err != nil {
 		return nil, err
 	}
-	images, err := s.repo.Images(ctx, id)
+	images, err := s.repo.Images(ctx, id, lang)
 	if err != nil {
 		return nil, err
 	}
 
-	// map always shown on districts, and will be shown when location have no images
-	showMap := row.Type == constants.LocationTypeDistrict || len(images) == 0
+	// map always shown on districts or POI, and will be shown when location have no images
+	showMap := row.Type == constants.LocationTypeDistrict || (row.Type != constants.LocationTypePOI && len(images) == 0)
 
 	return &model.LocationDetail{
 		ID:              row.ID,
@@ -96,7 +96,7 @@ func (s *LocationService) GetByID(ctx context.Context, id string) (*model.Locati
 
 // ListDistricts is the no-id fallback: every district with its flat descendants
 // (areas + pois) and images.
-func (s *LocationService) ListDistricts(ctx context.Context) ([]model.LocationDetail, error) {
+func (s *LocationService) ListDistricts(ctx context.Context, lang string) ([]model.LocationDetail, error) {
 	districts, err := s.repo.Districts(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (s *LocationService) ListDistricts(ctx context.Context) ([]model.LocationDe
 		if err != nil {
 			return nil, err
 		}
-		images, err := s.repo.Images(ctx, d.ID)
+		images, err := s.repo.Images(ctx, d.ID, lang)
 		if err != nil {
 			return nil, err
 		}

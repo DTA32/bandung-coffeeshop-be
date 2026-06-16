@@ -29,3 +29,10 @@ const (
 	OrderAsc  = "asc"
 	OrderDesc = "desc"
 )
+
+const (
+	LangIndonesian = "id"
+	LangEnglish    = "en"
+	// DefaultLang is used when the client sends no (recognised) Accept-Language.
+	DefaultLang = LangIndonesian
+)
