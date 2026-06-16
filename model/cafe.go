@@ -6,19 +6,21 @@ type Coordinates struct {
 }
 
 type CafeSearchRequest struct {
-	QueryID            string
-	QueryType          string
-	QueryCoords        *Coordinates
-	RadiusMax          *int
-	RatingCategoryType string
-	RatingCategorySlug string
-	Tag                string
-	IsFeatured         *bool
-	Lang               string
-	Sort               string
-	Order              string
-	Page               int
-	Size               int
+	QueryID     string
+	QueryType   string
+	QueryCoords *Coordinates
+	RadiusMax   *int
+	RatingIDs   []int // holds the selected rating_category bucket ids (one per category).
+	Tags        []string
+	OpenHour    string // literal "now" or an "HH:MM" time string; empty = no filter.
+	PriceMin    *int
+	PriceMax    *int
+	IsFeatured  *bool
+	Lang        string
+	Sort        string
+	Order       string
+	Page        int
+	Size        int
 }
 
 type CafeDetail struct {

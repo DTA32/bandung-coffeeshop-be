@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
@@ -22,6 +23,9 @@ var (
 	ErrDistanceSortNeedsCoords = errors.New("sort=distance requires query_coords")
 	ErrInvalidRatingCategory   = errors.New("invalid rating_category_type")
 	ErrRatingSlugWithoutType   = errors.New("rating_category_id requires rating_category_type")
+	ErrInvalidOpenHour         = errors.New("invalid open_hour")
+	ErrInvalidPriceRange       = errors.New("price_min cannot exceed price_max")
+	ErrDuplicateRatingType     = errors.New("duplicate rating category in filter")
 )
 
 const (
@@ -90,11 +94,10 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 
 	var (
-		focus     *repository.FocusLocation
-		ratingCat *repository.RatingCategory
-		tagRow    *repository.Tag
-		params    repository.CafeSearchParams
-		err       error
+		focus  *repository.FocusLocation
+		tagRow *repository.Tag
+		params repository.CafeSearchParams
+		err    error
 	)
 
 	if req.QueryID != "" {
@@ -104,23 +107,59 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		}
 	}
 
-	if req.RatingCategorySlug != "" {
-		ratingCat, err = s.repo.RatingCategoryBySlug(ctx, req.RatingCategoryType, req.RatingCategorySlug)
+	// Resolve rating buckets by id → (type, score bounds). A cafe has a single
+	// score per category, so two buckets of the same type can never both match;
+	// reject that as a bad request rather than silently returning nothing.
+	if len(req.RatingIDs) > 0 {
+		cats, err := s.repo.RatingCategoriesByIDs(ctx, req.RatingIDs)
 		if err != nil {
 			return nil, err
 		}
-		params.RatingCategoryType = ratingCat.Type
-		params.RatingLowerBound = &ratingCat.LowerBound
-		params.RatingUpperBound = &ratingCat.UpperBound
+		if len(cats) != len(req.RatingIDs) {
+			return nil, repository.ErrRatingCategoryNotFound
+		}
+		seen := make(map[string]struct{}, len(cats))
+		for _, rc := range cats {
+			if _, dup := seen[rc.Type]; dup {
+				return nil, ErrDuplicateRatingType
+			}
+			seen[rc.Type] = struct{}{}
+			params.RatingFilters = append(params.RatingFilters, repository.RatingFilterParam{
+				Type:  rc.Type,
+				Lower: rc.LowerBound,
+				Upper: rc.UpperBound,
+			})
+		}
 	}
 
-	if req.Tag != "" {
-		tagRow, err = s.repo.TagBySlug(ctx, req.Tag, req.Lang)
-		if err != nil {
-			return nil, err
+	// Tags (AND): resolve each slug; unknown slugs from a multi-select are
+	// ignored rather than failing the whole search.
+	for _, slug := range req.Tags {
+		t, terr := s.repo.TagBySlug(ctx, slug, req.Lang)
+		if terr != nil {
+			if errors.Is(terr, repository.ErrTagNotFound) {
+				continue
+			}
+			return nil, terr
 		}
-		params.TagSlug = tagRow.Slug
+		params.TagSlugs = append(params.TagSlugs, t.Slug)
+		tagRow = t
 	}
+	// The tag-only search description only applies to a single resolved tag.
+	if len(params.TagSlugs) != 1 {
+		tagRow = nil
+	}
+
+	// Open hours: resolve "now" to the current time in WIB (UTC+7, no DST).
+	if req.OpenHour != "" {
+		hhmm := req.OpenHour
+		if req.OpenHour == "now" {
+			hhmm = time.Now().In(time.FixedZone("WIB", 7*3600)).Format("15:04")
+		}
+		params.OpenHour = &hhmm
+	}
+	params.PriceMin = req.PriceMin
+	params.PriceMax = req.PriceMax
 
 	switch {
 	case focus != nil && (focus.Type == constants.LocationTypeArea || focus.Type == constants.LocationTypeDistrict):
@@ -245,13 +284,13 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 		}
 	}
 
-	if req.RatingCategoryType != "" {
-		if _, ok := validRatingCategories[req.RatingCategoryType]; !ok {
-			return ErrInvalidRatingCategory
+	if req.OpenHour != "" && req.OpenHour != "now" {
+		if _, err := time.Parse("15:04", req.OpenHour); err != nil {
+			return ErrInvalidOpenHour
 		}
 	}
-	if req.RatingCategorySlug != "" && req.RatingCategoryType == "" {
-		return ErrRatingSlugWithoutType
+	if req.PriceMin != nil && req.PriceMax != nil && *req.PriceMin > *req.PriceMax {
+		return ErrInvalidPriceRange
 	}
 
 	if req.Sort == "" {
@@ -303,7 +342,10 @@ func (s *CafeService) buildSearchDescription(req *model.CafeSearchRequest, focus
 	tagOnly := tag != nil &&
 		focus == nil &&
 		req.QueryCoords == nil &&
-		req.RatingCategorySlug == "" &&
+		len(req.RatingIDs) == 0 &&
+		req.OpenHour == "" &&
+		req.PriceMin == nil &&
+		req.PriceMax == nil &&
 		req.IsFeatured == nil
 	if tagOnly {
 		return tag.Description
