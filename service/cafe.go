@@ -235,17 +235,14 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 		return ErrCoordsConflictsWithID
 	}
 
-	switch req.QueryType {
-	case constants.LocationTypeCafe, constants.LocationTypePOI:
-		if req.RadiusMax == nil {
+	if req.RadiusMax == nil {
+		if req.QueryCoords != nil || req.QueryType == constants.LocationTypeCafe {
 			defaultValue := defaultRadiusMax
 			req.RadiusMax = &defaultValue
+		} else if req.QueryType == constants.LocationTypePOI {
+			defaultValue := 2000
+			req.RadiusMax = &defaultValue
 		}
-	}
-	if req.QueryCoords != nil && req.RadiusMax == nil {
-		// just discovered this golang quirk
-		defaultValue := defaultRadiusMax
-		req.RadiusMax = &defaultValue
 	}
 
 	if req.RatingCategoryType != "" {
