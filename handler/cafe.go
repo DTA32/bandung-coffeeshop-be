@@ -27,6 +27,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		RatingCategoryType: c.Query("rating_category_type"),
 		RatingCategorySlug: c.Query("rating_category_id"),
 		Tag:                c.Query("tag"),
+		Lang:               helper.Lang(c),
 		Sort:               c.Query("sort"),
 		Order:              c.Query("order"),
 	}
@@ -105,7 +106,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 
 func (h *CafeHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
-	res, err := h.svc.GetByID(c.Request.Context(), id)
+	res, err := h.svc.GetByID(c.Request.Context(), id, helper.Lang(c))
 	if err != nil {
 		if errors.Is(err, repository.ErrCafeNotFound) {
 			helper.Error(c, http.StatusNotFound, err.Error())
@@ -119,7 +120,7 @@ func (h *CafeHandler) GetByID(c *gin.Context) {
 
 func (h *CafeHandler) GetReview(c *gin.Context) {
 	id := c.Param("id")
-	res, err := h.svc.GetReviewByID(c.Request.Context(), id)
+	res, err := h.svc.GetReviewByID(c.Request.Context(), id, helper.Lang(c))
 	if err != nil {
 		if errors.Is(err, repository.ErrCafeNotFound) {
 			helper.Error(c, http.StatusNotFound, err.Error())

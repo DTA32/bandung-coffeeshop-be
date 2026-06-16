@@ -44,10 +44,36 @@ var validOrders = map[string]struct{}{
 	constants.OrderDesc: {},
 }
 
-var priceRankLabels = map[int]string{
-	0: "Bandung pricing - affordable for most",
-	1: "Riau pricing - slightly higher but still affordable",
-	2: "Jakarta pricing",
+// Backend-generated, localized labels. Keyed by locale code with an English
+// fallback applied via normLang.
+var priceRankLabels = map[string]map[int]string{
+	constants.LangEnglish: {
+		0: "Bandung pricing - affordable for most",
+		1: "Riau pricing - slightly higher but still affordable",
+		2: "Jakarta pricing",
+	},
+	constants.LangIndonesian: {
+		0: "Harga Bandung - terjangkau untuk kebanyakan orang",
+		1: "Harga Riau - sedikit lebih tinggi tapi masih terjangkau",
+		2: "Harga Jakarta",
+	},
+}
+
+var (
+	locLabelIn           = map[string]string{constants.LangEnglish: "in ", constants.LangIndonesian: "di "}
+	locLabelNear         = map[string]string{constants.LangEnglish: "near ", constants.LangIndonesian: "dekat "}
+	locLabelSelectedSpot = map[string]string{constants.LangEnglish: "near Selected Spot", constants.LangIndonesian: "dekat Lokasi Terpilih"}
+	priceStartFrom       = map[string]string{constants.LangEnglish: "start from ", constants.LangIndonesian: "mulai dari "}
+	priceUpTo            = map[string]string{constants.LangEnglish: "up to ", constants.LangIndonesian: "hingga "}
+)
+
+// normLang normalizes an arbitrary locale code to one of the supported codes,
+// defaulting to Indonesian.
+func normLang(lang string) string {
+	if lang == constants.LangEnglish {
+		return constants.LangEnglish
+	}
+	return constants.LangIndonesian
 }
 
 type CafeService struct {
@@ -72,7 +98,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	)
 
 	if req.QueryID != "" {
-		focus, err = s.repo.ResolveFocus(ctx, req.QueryID, req.QueryType)
+		focus, err = s.repo.ResolveFocus(ctx, req.QueryID, req.QueryType, req.Lang)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +115,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 
 	if req.Tag != "" {
-		tagRow, err = s.repo.TagBySlug(ctx, req.Tag)
+		tagRow, err = s.repo.TagBySlug(ctx, req.Tag, req.Lang)
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +146,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 
 	params.IsFeatured = req.IsFeatured
+	params.Lang = req.Lang
 	params.Sort = req.Sort
 	params.Order = req.Order
 	params.Page = req.Page
@@ -148,13 +175,13 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 			Coordinates: coords,
 			Thumbnail:   r.Thumbnail,
 			Area:        r.Area,
-			PriceRange:  formatPriceRange(r.PriceRangeMin, r.PriceRangeMax),
+			PriceRange:  formatPriceRange(req.Lang, r.PriceRangeMin, r.PriceRangeMax),
 			Distance:    distance,
 			Remark:      r.Remark,
 		})
 	}
 
-	locationName, formattedName := formatLocationLabel(focus, req.QueryCoords)
+	locationName, formattedName := formatLocationLabel(req.Lang, focus, req.QueryCoords)
 	searchDescription := s.buildSearchDescription(&req, focus, tagRow)
 
 	return &model.CafeSearchResponse{
@@ -259,17 +286,18 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 	return nil
 }
 
-func formatLocationLabel(focus *repository.FocusLocation, coords *model.Coordinates) (string, string) {
+func formatLocationLabel(lang string, focus *repository.FocusLocation, coords *model.Coordinates) (string, string) {
+	l := normLang(lang)
 	if focus != nil {
 		switch focus.Type {
 		case constants.LocationTypeArea, constants.LocationTypeDistrict:
-			return focus.Name, "in " + focus.Name
+			return focus.Name, locLabelIn[l] + focus.Name
 		case constants.LocationTypeCafe, constants.LocationTypePOI:
-			return focus.Name, "near " + focus.Name
+			return focus.Name, locLabelNear[l] + focus.Name
 		}
 	}
 	if coords != nil {
-		return "", "near Selected Spot"
+		return "", locLabelSelectedSpot[l]
 	}
 	return "", ""
 }
@@ -292,16 +320,17 @@ func (s *CafeService) buildSearchDescription(req *model.CafeSearchRequest, focus
 	return ""
 }
 
-func formatPriceRange(min, max *int) *string {
+func formatPriceRange(lang string, min, max *int) *string {
+	l := normLang(lang)
 	switch {
 	case min != nil && max != nil:
 		s := fmt.Sprintf("Rp. %s - Rp. %s", formatThousand(*min), formatThousand(*max))
 		return &s
 	case min != nil:
-		s := fmt.Sprintf("start from Rp. %s", formatThousand(*min))
+		s := fmt.Sprintf("%sRp. %s", priceStartFrom[l], formatThousand(*min))
 		return &s
 	case max != nil:
-		s := fmt.Sprintf("up to Rp. %s", formatThousand(*max))
+		s := fmt.Sprintf("%sRp. %s", priceUpTo[l], formatThousand(*max))
 		return &s
 	default:
 		return nil
@@ -315,13 +344,13 @@ func formatThousand(v int) string {
 	return strconv.Itoa(v)
 }
 
-func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.CafeDetailResponse, error) {
-	row, err := s.repo.CafeByLocationID(ctx, locationID)
+func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*model.CafeDetailResponse, error) {
+	row, err := s.repo.CafeByLocationID(ctx, locationID, lang)
 	if err != nil {
 		return nil, err
 	}
 
-	images, err := s.repo.CafeImagesByLocationID(ctx, locationID)
+	images, err := s.repo.CafeImagesByLocationID(ctx, locationID, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +367,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.Ca
 
 	var rank *model.CafeRank
 	if priceRank != nil {
-		rank = &model.CafeRank{Type: *priceRank, Label: priceRankLabels[*priceRank]}
+		rank = &model.CafeRank{Type: *priceRank, Label: priceRankLabels[normLang(lang)][*priceRank]}
 	}
 
 	var desc *string
@@ -380,7 +409,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID string) (*model.Ca
 	}, nil
 }
 
-func (s *CafeService) GetReviewByID(ctx context.Context, locationID string) (*model.CafeReviewResponse, error) {
+func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string) (*model.CafeReviewResponse, error) {
 	exists, err := s.repo.CafeExistsByLocationID(ctx, locationID)
 	if err != nil {
 		return nil, err
@@ -389,7 +418,7 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID string) (*mo
 		return nil, repository.ErrCafeNotFound
 	}
 
-	reviewRow, err := s.repo.CafeReviewByLocationID(ctx, locationID)
+	reviewRow, err := s.repo.CafeReviewByLocationID(ctx, locationID, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -400,12 +429,12 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID string) (*mo
 		}, nil
 	}
 
-	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID)
+	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID, lang)
 	if err != nil {
 		return nil, err
 	}
 
-	ratingRows, err := s.repo.CafeRatingsByLocationID(ctx, locationID)
+	ratingRows, err := s.repo.CafeRatingsByLocationID(ctx, locationID, lang)
 	if err != nil {
 		return nil, err
 	}

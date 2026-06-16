@@ -14,6 +14,7 @@ type CafeSearchRequest struct {
 	RatingCategorySlug string
 	Tag                string
 	IsFeatured         *bool
+	Lang               string
 	Sort               string
 	Order              string
 	Page               int

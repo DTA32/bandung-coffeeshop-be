@@ -24,6 +24,16 @@ const (
 	SearchModeRadius  = "radius"
 )
 
+// localized builds a SQL expression returning the Indonesian column (indoCol)
+// when the bound lang placeholder resolves to 'id' and is non-empty, otherwise
+// the English baseline (baseCol). langArg is a positional bind placeholder such
+// as "$2". The result can be NULL if baseCol is NULL; wrap in COALESCE(..., ”)
+// when scanning into a non-pointer string.
+func localized(langArg, indoCol, baseCol string) string {
+	return fmt.Sprintf("COALESCE(NULLIF(CASE WHEN %s = '%s' THEN %s END, ''), %s)",
+		langArg, constants.LangIndonesian, indoCol, baseCol)
+}
+
 type CafeRepository struct {
 	db *pgxpool.Pool
 }
@@ -73,6 +83,7 @@ type CafeSearchParams struct {
 	RatingUpperBound   *float64
 	IsFeatured         *bool
 
+	Lang  string
 	Sort  string
 	Order string
 	Page  int
@@ -121,14 +132,14 @@ type CafeRatingRow struct {
 	UpperBound   float64
 }
 
-func (r *CafeRepository) ResolveFocus(ctx context.Context, id string, queryType string) (*FocusLocation, error) {
+func (r *CafeRepository) ResolveFocus(ctx context.Context, id, queryType, lang string) (*FocusLocation, error) {
 	// Resolve the focus location, plus its containing district (area / poi) and
 	// area (poi only) via PostGIS containment so the service can build a
 	// breadcrumb. Cafe focus is intentionally excluded from the LATERAL gates
 	// (no breadcrumb for single-cafe searches).
 	var f FocusLocation
-	err := r.db.QueryRow(ctx, `
-		SELECT l.id, l.name, l.type::text, l.description,
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT l.id, l.name, l.type::text, %s,`, localized("$3", "l.description_indo", "l.description"))+`
 		       ST_Y(ST_Centroid(l.coordinates)) AS lat,
 		       ST_X(ST_Centroid(l.coordinates)) AS lng,
 		       d.id, d.name, a.id, a.name
@@ -148,7 +159,7 @@ func (r *CafeRepository) ResolveFocus(ctx context.Context, id string, queryType 
 		    ORDER BY a.id LIMIT 1
 		) a ON l.type = 'poi'
 		WHERE l.id = $1 AND l.type = $2 AND l.status <> 'deleted'
-	`, id, queryType).Scan(
+	`, id, queryType, lang).Scan(
 		&f.ID, &f.Name, &f.Type, &f.Description, &f.CenterLat, &f.CenterLng,
 		&f.DistrictID, &f.DistrictName, &f.AreaID, &f.AreaName,
 	)
@@ -180,13 +191,14 @@ func (r *CafeRepository) RatingCategoryBySlug(ctx context.Context, categoryType,
 	return &rc, nil
 }
 
-func (r *CafeRepository) TagBySlug(ctx context.Context, slug string) (*Tag, error) {
+func (r *CafeRepository) TagBySlug(ctx context.Context, slug, lang string) (*Tag, error) {
 	var t Tag
-	err := r.db.QueryRow(ctx, `
-		SELECT id, name, COALESCE(slug, ''), description
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, %s, COALESCE(slug, ''), %s
 		FROM tag
 		WHERE slug = $1
-	`, slug).Scan(&t.ID, &t.Name, &t.Slug, &t.Description)
+	`, localized("$2", "name_indo", "name"), localized("$2", "description_indo", "description")),
+		slug, lang).Scan(&t.ID, &t.Name, &t.Slug, &t.Description)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTagNotFound
 	}
@@ -227,10 +239,12 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		focusPointSQL = "NULL::geometry"
 	}
 
-	sb.WriteString(`SELECT
+	langP := addArg(p.Lang)
+
+	sb.WriteString(fmt.Sprintf(`SELECT
 		l.id,
 		l.name,
-		l.description,
+		%s,
 		ST_Y(l.coordinates) AS lat,
 		ST_X(l.coordinates) AS lng,
 		(SELECT li.url FROM location_image li
@@ -242,10 +256,12 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			ORDER BY a.id LIMIT 1) AS area,
 		cp.price_range_min,
 		cp.price_range_max,
-		(SELECT t.name FROM cafe_tag ct
+		(SELECT %s FROM cafe_tag ct
 			JOIN tag t ON t.id = ct.tag_id
 			WHERE ct.cafe_id = c.id AND ct.visible = TRUE
-			ORDER BY t.id LIMIT 1) AS remark,`)
+			ORDER BY t.id LIMIT 1) AS remark,`,
+		localized(langP, "l.description_indo", "l.description"),
+		localized(langP, "t.name_indo", "t.name")))
 
 	sb.WriteString(fmt.Sprintf(`
 		CASE WHEN %s IS NULL THEN NULL
@@ -398,10 +414,10 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	return results, total, nil
 }
 
-func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string) (*CafeDetailRow, error) {
+func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang string) (*CafeDetailRow, error) {
 	var row CafeDetailRow
-	err := r.db.QueryRow(ctx, `
-		SELECT l.id, l.name, l.description, l.status, l.gmaps_id,
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT l.id, l.name, %s, l.status, l.gmaps_id,`, localized("$2", "l.description_indo", "l.description"))+`
 		       c.instagram,
 		       TO_CHAR(c.open_hour,  'HH24:MI'),
 		       TO_CHAR(c.close_hour, 'HH24:MI'),
@@ -428,7 +444,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string
 		    ORDER BY d.id LIMIT 1
 		) district ON TRUE
 		WHERE l.id = $1 AND l.type = 'cafe'
-	`, locationID).Scan(
+	`, locationID, lang).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
 		&row.Instagram, &row.OpenHour, &row.CloseHour,
 		&row.PriceRangeMin, &row.PriceRangeMax,
@@ -446,13 +462,13 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID string
 	return &row, nil
 }
 
-func (r *CafeRepository) CafeImagesByLocationID(ctx context.Context, locationID string) ([]CafeImageRow, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT li.url, li.description
+func (r *CafeRepository) CafeImagesByLocationID(ctx context.Context, locationID, lang string) ([]CafeImageRow, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT li.url, %s
 		FROM location_image li
 		WHERE li.location_id = $1
 		ORDER BY li.display_order ASC, li.id ASC
-	`, locationID)
+	`, localized("$2", "li.description_indo", "li.description")), locationID, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -512,17 +528,17 @@ func (r *CafeRepository) CafeExistsByLocationID(ctx context.Context, locationID 
 	return true, nil
 }
 
-func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID string) (*ReviewRow, error) {
+func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID, lang string) (*ReviewRow, error) {
 	var row ReviewRow
-	err := r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		SELECT cr.is_subjective, cr.overall_score, cr.wfc_score,
-		       cr.content, cr.visited_at::text, cr.updated_at::text
+		       %s, cr.visited_at::text, cr.updated_at::text
 		FROM cafe_review cr
 		JOIN cafe c ON c.id = cr.cafe_id
 		WHERE c.location_id = $1
 		ORDER BY COALESCE(cr.visited_at, cr.created_at::date) DESC, cr.id DESC
 		LIMIT 1
-	`, locationID).Scan(
+	`, localized("$2", "cr.content_indo", "cr.content")), locationID, lang).Scan(
 		&row.IsSubjective, &row.OverallScore, &row.WFCScore,
 		&row.Content, &row.VisitedAt, &row.UpdatedAt,
 	)
@@ -535,15 +551,15 @@ func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID 
 	return &row, nil
 }
 
-func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID string) ([]CafeTagRow, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT t.name, t.slug
+func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, lang string) ([]CafeTagRow, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT %s, t.slug
 		FROM cafe_tag ct
 		JOIN tag t ON t.id = ct.tag_id
 		JOIN cafe c ON c.id = ct.cafe_id
 		WHERE c.location_id = $1 AND ct.visible = TRUE
 		ORDER BY t.id
-	`, locationID)
+	`, localized("$2", "t.name_indo", "t.name")), locationID, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -560,17 +576,19 @@ func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID st
 	return results, rows.Err()
 }
 
-func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID string) ([]CafeRatingRow, error) {
-	rows, err := r.db.Query(ctx, `
+func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID, lang string) ([]CafeRatingRow, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT cr.category_type::text, cr.score,
-		       COALESCE(cr.short_description_override, ''),
-		       rc.name, rc.short_description, rc.lower_bound, rc.upper_bound
+		       COALESCE(%s, ''),
+		       %s, %s, rc.lower_bound, rc.upper_bound
 		FROM cafe_rating cr
 		JOIN cafe c ON c.id = cr.cafe_id
 		JOIN rating_category rc ON rc.type = cr.category_type
 		WHERE c.location_id = $1
 		ORDER BY cr.category_type, rc.lower_bound
-	`, locationID)
+	`, localized("$2", "cr.short_description_override_indo", "cr.short_description_override"),
+		localized("$2", "rc.name_indo", "rc.name"),
+		localized("$2", "rc.short_description_indo", "rc.short_description")), locationID, lang)
 	if err != nil {
 		return nil, err
 	}
