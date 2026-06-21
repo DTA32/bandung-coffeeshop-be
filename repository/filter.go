@@ -16,29 +16,33 @@ func NewFilterRepository(db *pgxpool.Pool) *FilterRepository {
 }
 
 type FilterTagRow struct {
-	Name string
-	Slug string
+	Name        string
+	Slug        string
+	Description string
 }
 
 type FilterRatingRow struct {
-	ID          int
-	Type        string
-	Name        string
-	Description string
-	Lower       float64
-	Upper       float64
+	ID              int
+	Type            string
+	Slug            string
+	Name            string
+	Description     string
+	LongDescription string
+	Lower           float64
+	Upper           float64
 }
 
 // Tags lists every tag that has a usable slug, localized, for the filter
 // modal's tag picker.
 func (r *FilterRepository) Tags(ctx context.Context, lang string) ([]FilterTagRow, error) {
 	nameExpr := localized("$1", "name_indo", "name")
+	descExpr := localized("$1", "description_indo", "description")
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT %s, COALESCE(slug, '')
+		SELECT %s, COALESCE(slug, ''), %s
 		FROM tag
 		WHERE slug IS NOT NULL AND slug <> ''
 		ORDER BY id
-	`, nameExpr), lang)
+	`, nameExpr, descExpr), lang)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +51,7 @@ func (r *FilterRepository) Tags(ctx context.Context, lang string) ([]FilterTagRo
 	var results []FilterTagRow
 	for rows.Next() {
 		var row FilterTagRow
-		if err := rows.Scan(&row.Name, &row.Slug); err != nil {
+		if err := rows.Scan(&row.Name, &row.Slug, &row.Description); err != nil {
 			return nil, err
 		}
 		results = append(results, row)
@@ -60,11 +64,12 @@ func (r *FilterRepository) Tags(ctx context.Context, lang string) ([]FilterTagRo
 // by type.
 func (r *FilterRepository) RatingCategories(ctx context.Context, lang string) ([]FilterRatingRow, error) {
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT id, type::text, %s, %s, lower_bound, upper_bound
+		SELECT id, type::text, COALESCE(slug, ''), %s, %s, %s, lower_bound, upper_bound
 		FROM rating_category
 		ORDER BY type, lower_bound
 	`, localized("$1", "name_indo", "name"),
-		localized("$1", "short_description_indo", "short_description")), lang)
+		localized("$1", "short_description_indo", "short_description"),
+		localized("$1", "long_description_indo", "long_description")), lang)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +78,7 @@ func (r *FilterRepository) RatingCategories(ctx context.Context, lang string) ([
 	var results []FilterRatingRow
 	for rows.Next() {
 		var row FilterRatingRow
-		if err := rows.Scan(&row.ID, &row.Type, &row.Name, &row.Description, &row.Lower, &row.Upper); err != nil {
+		if err := rows.Scan(&row.ID, &row.Type, &row.Slug, &row.Name, &row.Description, &row.LongDescription, &row.Lower, &row.Upper); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

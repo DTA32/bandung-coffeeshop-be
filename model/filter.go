@@ -10,8 +10,9 @@ type FiltersResponse struct {
 }
 
 type FilterTag struct {
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description,omitempty"`
 }
 
 type FilterRatingCategory struct {
@@ -21,15 +22,19 @@ type FilterRatingCategory struct {
 }
 
 type FilterRatingOption struct {
-	ID          int     `json:"id"`          // FE selects buckets by this id
-	Name        string  `json:"name"`        // localized
-	Description string  `json:"description"` // localized short_description
-	LowerBound  float64 `json:"lower_bound"`
-	UpperBound  float64 `json:"upper_bound"`
+	ID              int     `json:"id"`          // FE selects buckets by this id
+	Slug            string  `json:"slug"`        // SRP slug "<slug>-<type>" e.g. "hangout-vibe"; "" when not SRP-eligible
+	Name            string  `json:"name"`        // localized
+	Description     string  `json:"description"` // localized short_description
+	LongDescription string  `json:"long_description,omitempty"`
+	LowerBound      float64 `json:"lower_bound"`
+	UpperBound      float64 `json:"upper_bound"`
 }
 
 type FilterPriceTier struct {
-	Label string `json:"label"`
-	Min   int    `json:"min"`
-	Max   *int   `json:"max"` // nil = open-ended top tier
+	Label           string `json:"label"`
+	Slug            string `json:"slug"`                       // SRP slug "<slug>-price-rank" e.g. "bandung-price-rank"; "" when not SRP-eligible
+	LongDescription string `json:"long_description,omitempty"` // localized short_description
+	Min             int    `json:"min"`
+	Max             *int   `json:"max"` // nil = open-ended top tier
 }

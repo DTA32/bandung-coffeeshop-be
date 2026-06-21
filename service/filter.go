@@ -30,6 +30,18 @@ var ratingTypeLabels = map[string]map[string]string{
 	},
 }
 
+// srpSlug composes the canonical SRP slug for a rating-sourced value by
+// appending its category type ("hangout" + "vibe" → "hangout-vibe"). This
+// namespaces the slug per dimension, keeping it self-describing and
+// collision-proof in pretty URLs. Returns "" when the value has no slug (i.e.
+// it isn't SRP-eligible).
+func srpSlug(slug, categoryType string) string {
+	if slug == "" {
+		return ""
+	}
+	return slug + "-" + categoryType
+}
+
 type FilterService struct {
 	repo *repository.FilterRepository
 }
@@ -42,7 +54,11 @@ func NewFilterService(repo *repository.FilterRepository) *FilterService {
 // selectable tag, the rating categories grouped by type (each with its
 // buckets), and the price tiers. The price-rank rating category is surfaced as
 // price tiers rather than a rating group, since price has its own filter.
-func (s *FilterService) Get(ctx context.Context, lang string) (*model.FiltersResponse, error) {
+//
+// When enrich is true, tags carry their long description and rating buckets
+// their long_description — the SRP page renders these as a blurb. The filter
+// modal calls it with enrich=false to keep the payload light.
+func (s *FilterService) Get(ctx context.Context, lang string, enrich bool) (*model.FiltersResponse, error) {
 	tagRows, err := s.repo.Tags(ctx, lang)
 	if err != nil {
 		return nil, err
@@ -54,7 +70,11 @@ func (s *FilterService) Get(ctx context.Context, lang string) (*model.FiltersRes
 
 	tags := make([]model.FilterTag, 0, len(tagRows))
 	for _, t := range tagRows {
-		tags = append(tags, model.FilterTag{Name: t.Name, Slug: t.Slug})
+		tag := model.FilterTag{Name: t.Name, Slug: t.Slug}
+		if enrich {
+			tag.Description = t.Description
+		}
+		tags = append(tags, tag)
 	}
 
 	labels := ratingTypeLabels[normLang(lang)]
@@ -65,11 +85,16 @@ func (s *FilterService) Get(ctx context.Context, lang string) (*model.FiltersRes
 	for _, r := range ratingRows {
 		if r.Type == constants.RatingCategoryPriceRank {
 			max := int(r.Upper)
-			priceTiers = append(priceTiers, model.FilterPriceTier{
+			tier := model.FilterPriceTier{
 				Label: r.Name,
+				Slug:  srpSlug(r.Slug, r.Type),
 				Min:   int(r.Lower),
 				Max:   &max,
-			})
+			}
+			if enrich {
+				tier.LongDescription = r.LongDescription
+			}
+			priceTiers = append(priceTiers, tier)
 			continue
 		}
 		i, ok := idx[r.Type]
@@ -82,13 +107,18 @@ func (s *FilterService) Get(ctx context.Context, lang string) (*model.FiltersRes
 			i = len(cats) - 1
 			idx[r.Type] = i
 		}
-		cats[i].Options = append(cats[i].Options, model.FilterRatingOption{
+		opt := model.FilterRatingOption{
 			ID:          r.ID,
+			Slug:        srpSlug(r.Slug, r.Type),
 			Name:        r.Name,
 			Description: r.Description,
 			LowerBound:  r.Lower,
 			UpperBound:  r.Upper,
-		})
+		}
+		if enrich {
+			opt.LongDescription = r.LongDescription
+		}
+		cats[i].Options = append(cats[i].Options, opt)
 	}
 	// Buckets are ordered by lower_bound, so the last price tier is the
 	// open-ended top tier — drop its upper bound.
