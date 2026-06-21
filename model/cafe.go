@@ -94,6 +94,7 @@ type CafeTag struct {
 }
 
 type RatingEntry struct {
+	DisplayName string        `json:"display_name"`
 	Range       []RatingRange `json:"range"`
 	Score       float64       `json:"score"`
 	Description string        `json:"description"`

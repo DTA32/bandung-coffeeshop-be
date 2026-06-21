@@ -488,6 +488,7 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 		entry, ok := ratings[r.CategoryType]
 		if !ok {
 			entry = model.RatingEntry{
+				DisplayName: r.TypeLabel,
 				Score:       r.Score,
 				Description: r.Description,
 				Range:       []model.RatingRange{},

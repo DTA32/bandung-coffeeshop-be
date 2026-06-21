@@ -132,6 +132,7 @@ type CafeTagRow struct {
 
 type CafeRatingRow struct {
 	CategoryType string
+	TypeLabel    string
 	Score        float64
 	Description  string
 	RangeName    string
@@ -186,7 +187,7 @@ func (r *CafeRepository) RatingCategoryBySlug(ctx context.Context, categoryType,
 	err := r.db.QueryRow(ctx, `
 		SELECT id, type::text, slug, lower_bound, upper_bound
 		FROM rating_category
-		WHERE type = $1::rating_category_type_enum AND slug = $2
+		WHERE type = $1 AND slug = $2
 	`, categoryType, slug).Scan(&rc.ID, &rc.Type, &rc.Slug, &lb, &ub)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrRatingCategoryNotFound
@@ -317,7 +318,7 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		ubP := addArg(rf.Upper)
 		sb.WriteString(fmt.Sprintf(`
 		JOIN cafe_rating %s ON %s.cafe_id = c.id
-			AND %s.category_type = %s::rating_category_type_enum
+			AND %s.category_type = %s
 			AND %s.score >= %s AND %s.score <= %s`,
 			alias, alias, alias, typeP, alias, lbP, alias, ubP))
 	}
@@ -647,15 +648,17 @@ func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, l
 
 func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID, lang string) ([]CafeRatingRow, error) {
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT cr.category_type::text, cr.score,
+		SELECT cr.category_type::text, COALESCE(%s, ''), cr.score,
 		       COALESCE(%s, ''),
 		       %s, %s, rc.lower_bound, rc.upper_bound
 		FROM cafe_rating cr
 		JOIN cafe c ON c.id = cr.cafe_id
 		JOIN rating_category rc ON rc.type = cr.category_type
+		LEFT JOIN rating_type_label rtl ON rtl.type = cr.category_type
 		WHERE c.location_id = $1
 		ORDER BY cr.category_type, rc.lower_bound
-	`, localized("$2", "cr.short_description_override_indo", "cr.short_description_override"),
+	`, localized("$2", "rtl.label_indo", "rtl.label"),
+		localized("$2", "cr.short_description_override_indo", "cr.short_description_override"),
 		localized("$2", "rc.name_indo", "rc.name"),
 		localized("$2", "rc.short_description_indo", "rc.short_description")), locationID, lang)
 	if err != nil {
@@ -667,7 +670,7 @@ func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID
 	for rows.Next() {
 		var row CafeRatingRow
 		if err := rows.Scan(
-			&row.CategoryType, &row.Score, &row.Description,
+			&row.CategoryType, &row.TypeLabel, &row.Score, &row.Description,
 			&row.RangeName, &row.RangeDesc,
 			&row.LowerBound, &row.UpperBound,
 		); err != nil {

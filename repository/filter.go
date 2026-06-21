@@ -24,6 +24,7 @@ type FilterTagRow struct {
 type FilterRatingRow struct {
 	ID              int
 	Type            string
+	TypeLabel       string
 	Slug            string
 	Name            string
 	Description     string
@@ -64,12 +65,14 @@ func (r *FilterRepository) Tags(ctx context.Context, lang string) ([]FilterTagRo
 // by type.
 func (r *FilterRepository) RatingCategories(ctx context.Context, lang string) ([]FilterRatingRow, error) {
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT id, type::text, COALESCE(slug, ''), %s, %s, %s, lower_bound, upper_bound
-		FROM rating_category
-		ORDER BY type, lower_bound
-	`, localized("$1", "name_indo", "name"),
-		localized("$1", "short_description_indo", "short_description"),
-		localized("$1", "long_description_indo", "long_description")), lang)
+		SELECT rc.id, rc.type::text, COALESCE(%s, ''), COALESCE(rc.slug, ''), %s, %s, %s, rc.lower_bound, rc.upper_bound
+		FROM rating_category rc
+		LEFT JOIN rating_type_label rtl ON rtl.type = rc.type
+		ORDER BY rc.type, rc.lower_bound
+	`, localized("$1", "rtl.label_indo", "rtl.label"),
+		localized("$1", "rc.name_indo", "rc.name"),
+		localized("$1", "rc.short_description_indo", "rc.short_description"),
+		localized("$1", "rc.long_description_indo", "rc.long_description")), lang)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +81,7 @@ func (r *FilterRepository) RatingCategories(ctx context.Context, lang string) ([
 	var results []FilterRatingRow
 	for rows.Next() {
 		var row FilterRatingRow
-		if err := rows.Scan(&row.ID, &row.Type, &row.Slug, &row.Name, &row.Description, &row.LongDescription, &row.Lower, &row.Upper); err != nil {
+		if err := rows.Scan(&row.ID, &row.Type, &row.TypeLabel, &row.Slug, &row.Name, &row.Description, &row.LongDescription, &row.Lower, &row.Upper); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

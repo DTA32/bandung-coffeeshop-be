@@ -8,28 +8,6 @@ import (
 	"github.com/dta32/bandung-coffeeshop-be/repository"
 )
 
-// ratingTypeLabels are the localized display names for each rating category
-// type, surfaced by the filter metadata endpoint (price-rank is handled by the
-// dedicated price filter, so it is omitted from the rating groups).
-var ratingTypeLabels = map[string]map[string]string{
-	constants.LangEnglish: {
-		constants.RatingCategoryVibe:       "Vibe",
-		constants.RatingCategoryNoise:      "Noise Level",
-		constants.RatingCategoryWifi:       "Wifi Speed",
-		constants.RatingCategoryMeals:      "Meals Generosity",
-		constants.RatingCategoryAtmosphere: "Atmosphere",
-		constants.RatingCategoryParking:    "Parking",
-	},
-	constants.LangIndonesian: {
-		constants.RatingCategoryVibe:       "Suasana",
-		constants.RatingCategoryNoise:      "Tingkat Kebisingan",
-		constants.RatingCategoryWifi:       "Kecepatan Wifi",
-		constants.RatingCategoryMeals:      "Porsi Makanan",
-		constants.RatingCategoryAtmosphere: "Atmosfer",
-		constants.RatingCategoryParking:    "Parkir",
-	},
-}
-
 // srpSlug composes the canonical SRP slug for a rating-sourced value by
 // appending its category type ("hangout" + "vibe" → "hangout-vibe"). This
 // namespaces the slug per dimension, keeping it self-describing and
@@ -77,7 +55,6 @@ func (s *FilterService) Get(ctx context.Context, lang string, enrich bool) (*mod
 		tags = append(tags, tag)
 	}
 
-	labels := ratingTypeLabels[normLang(lang)]
 	cats := make([]model.FilterRatingCategory, 0)
 	idx := make(map[string]int) // type → index in cats, preserving query order
 	priceTiers := make([]model.FilterPriceTier, 0, 3)
@@ -101,7 +78,7 @@ func (s *FilterService) Get(ctx context.Context, lang string, enrich bool) (*mod
 		if !ok {
 			cats = append(cats, model.FilterRatingCategory{
 				Type:        r.Type,
-				DisplayName: labels[r.Type],
+				DisplayName: r.TypeLabel,
 				Options:     []model.FilterRatingOption{},
 			})
 			i = len(cats) - 1
