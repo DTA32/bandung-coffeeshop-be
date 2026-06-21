@@ -50,13 +50,17 @@ func main() {
 	filterSvc := service.NewFilterService(filterRepo)
 	filterHdlr := handler.NewFilterHandler(filterSvc)
 
+	quicksearchRepo := repository.NewQuicksearchRepository(pool)
+	quicksearchSvc := service.NewQuicksearchService(quicksearchRepo)
+	quicksearchHdlr := handler.NewQuicksearchHandler(quicksearchSvc)
+
 	r := gin.Default()
 	r.Use(cors.New(corsConfig))
 	r.GET("/health", handler.Health)
 
 	v1 := r.Group("/v1")
 	{
-		v1.GET("/quicksearch", locationHdlr.Quicksearch)
+		v1.GET("/quicksearch", quicksearchHdlr.Quicksearch)
 		v1.GET("/location", locationHdlr.List)
 		v1.GET("/location/:id", locationHdlr.GetByID)
 		v1.GET("/search/cafes", cafeHdlr.Search)

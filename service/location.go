@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
@@ -15,21 +14,13 @@ var ErrInvalidLocationType = errors.New("invalid location type")
 
 var ErrLocationIsCafe = errors.New("location is a cafe")
 
+// validLocationTypes is the set of concrete location types. Shared across the
+// service package (cafe query_type validation, quicksearch type routing).
 var validLocationTypes = map[string]struct{}{
 	constants.LocationTypeCafe:     {},
 	constants.LocationTypePOI:      {},
 	constants.LocationTypeArea:     {},
 	constants.LocationTypeDistrict: {},
-}
-
-var validRatingCategories = map[string]struct{}{
-	constants.RatingCategoryPriceRank:  {},
-	constants.RatingCategoryVibe:       {},
-	constants.RatingCategoryNoise:      {},
-	constants.RatingCategoryWifi:       {},
-	constants.RatingCategoryMeals:      {},
-	constants.RatingCategoryAtmosphere: {},
-	constants.RatingCategoryParking:    {},
 }
 
 type LocationService struct {
@@ -38,19 +29,6 @@ type LocationService struct {
 
 func NewLocationService(repo *repository.LocationRepository) *LocationService {
 	return &LocationService{repo: repo}
-}
-
-func (s *LocationService) Quicksearch(ctx context.Context, q, locType string) ([]model.QuicksearchResult, error) {
-	q = strings.TrimSpace(strings.ToLower(q))
-	if len(q) < 2 {
-		return []model.QuicksearchResult{}, nil
-	}
-	if locType != "" {
-		if _, ok := validLocationTypes[locType]; !ok {
-			return nil, ErrInvalidLocationType
-		}
-	}
-	return s.repo.Quicksearch(ctx, q, locType)
 }
 
 // GetByID assembles a single location's detail. Cafes are rejected with

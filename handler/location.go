@@ -18,23 +18,6 @@ func NewLocationHandler(svc *service.LocationService) *LocationHandler {
 	return &LocationHandler{svc: svc}
 }
 
-func (h *LocationHandler) Quicksearch(c *gin.Context) {
-	q := c.Query("q")
-	locType := c.Query("type")
-
-	results, err := h.svc.Quicksearch(c.Request.Context(), q, locType)
-	if err != nil {
-		if errors.Is(err, service.ErrInvalidLocationType) {
-			helper.Error(c, http.StatusBadRequest, "invalid location type")
-			return
-		}
-		helper.Error(c, http.StatusInternalServerError, "search failed")
-		return
-	}
-
-	helper.Success(c, results)
-}
-
 func (h *LocationHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 

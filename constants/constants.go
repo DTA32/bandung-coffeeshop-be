@@ -7,14 +7,15 @@ const (
 	LocationTypeDistrict = "district"
 )
 
+// Quicksearch `type` selectors. Also accepts specific location types above
 const (
-	RatingCategoryPriceRank  = "price-rank"
-	RatingCategoryVibe       = "vibe"
-	RatingCategoryNoise      = "noise"
-	RatingCategoryWifi       = "wifi"
-	RatingCategoryMeals      = "meals"
-	RatingCategoryAtmosphere = "atmosphere"
-	RatingCategoryParking    = "parking"
+	QuicksearchTypeAll      = "all"
+	QuicksearchTypeLocation = "location" // all location types
+	QuicksearchTypeFilter   = "filter"
+)
+
+const (
+	RatingCategoryPriceRank = "price-rank"
 )
 
 const (
