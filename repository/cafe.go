@@ -139,6 +139,7 @@ type CafeRatingRow struct {
 	RangeDesc    string
 	LowerBound   float64
 	UpperBound   float64
+	Slug         *string
 }
 
 func (r *CafeRepository) ResolveFocus(ctx context.Context, id, queryType, lang string) (*FocusLocation, error) {
@@ -650,7 +651,7 @@ func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT cr.category_type::text, COALESCE(%s, ''), cr.score,
 		       COALESCE(%s, ''),
-		       %s, %s, rc.lower_bound, rc.upper_bound
+		       %s, %s, rc.lower_bound, rc.upper_bound, rc.slug
 		FROM cafe_rating cr
 		JOIN cafe c ON c.id = cr.cafe_id
 		JOIN rating_category rc ON rc.type = cr.category_type
@@ -672,7 +673,7 @@ func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID
 		if err := rows.Scan(
 			&row.CategoryType, &row.TypeLabel, &row.Score, &row.Description,
 			&row.RangeName, &row.RangeDesc,
-			&row.LowerBound, &row.UpperBound,
+			&row.LowerBound, &row.UpperBound, &row.Slug,
 		); err != nil {
 			return nil, err
 		}

@@ -102,6 +102,7 @@ type RatingEntry struct {
 
 type RatingRange struct {
 	Name        string  `json:"name"`
+	Slug        *string `json:"slug"`
 	Description string  `json:"description"`
 	LowerBound  float64 `json:"lower_bound"`
 	UpperBound  float64 `json:"upper_bound"`

@@ -494,12 +494,17 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 				Range:       []model.RatingRange{},
 			}
 		}
-		entry.Range = append(entry.Range, model.RatingRange{
+		ratingRange := model.RatingRange{
 			Name:        r.RangeName,
 			Description: r.RangeDesc,
 			LowerBound:  r.LowerBound,
 			UpperBound:  r.UpperBound,
-		})
+		}
+		if r.Score >= r.LowerBound && r.Score <= r.UpperBound && r.Slug != nil {
+			slug := fmt.Sprintf("%s-%s", *r.Slug, r.CategoryType)
+			ratingRange.Slug = &slug
+		}
+		entry.Range = append(entry.Range, ratingRange)
 		ratings[r.CategoryType] = entry
 	}
 
