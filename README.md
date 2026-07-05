@@ -1,6 +1,6 @@
 # BDGCafe Backend
 
-Go REST API for [BDGCafe](https://bdgcafe.com) — a personal Bandung coffee shop review and discovery site. Reviews are from personal experience, not crowdsourced.
+Go REST API for [BDGCafe](https://bdgcafe.com) — a Bandung coffee shop review and discovery site.
 
 ## Stack
 
@@ -12,8 +12,9 @@ Go REST API for [BDGCafe](https://bdgcafe.com) — a personal Bandung coffee sho
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.26+
 - PostgreSQL with `pg_trgm` and `postgis` extensions enabled
+- Python 3 (for the data seeders)
 
 ### Setup
 
@@ -21,14 +22,17 @@ Go REST API for [BDGCafe](https://bdgcafe.com) — a personal Bandung coffee sho
 cp .env.example .env
 # Fill in DB credentials in .env
 
-# Apply schema
+# 1. Apply schema (extensions, enums, tables, indexes)
 psql -U postgres -d bandung_coffeeshop -f migrations/001_init.sql
-psql -U postgres -d bandung_coffeeshop -f migrations/003_create_indexes.sql
-psql -U postgres -d bandung_coffeeshop -f migrations/004_tag_category_seeder.sql
 
-# Seed cafe data
+# 2. Seed cafes from cafe_master.json
 python3 migrations/002_cafe_seeder.py
-python3 migrations/005_area_district_seeder.py
+
+# 3. Seed reference + i18n data (tags, rating categories, translations)
+psql -U postgres -d bandung_coffeeshop -f migrations/003_data_seeder.sql
+
+# 4. Seed area/district polygons (OpenStreetMap / Nominatim)
+python3 migrations/004_area_district_seeder.py
 
 # Run
 go run ./cmd
@@ -48,12 +52,23 @@ go run ./cmd
 ## Development
 
 ```bash
-go run ./cmd        # Run server
-go build -o app ./cmd  # Build binary
-go test ./...       # Run tests
-go vet ./...        # Static analysis
-go fmt ./...        # Format code
-go mod tidy         # Sync dependencies
+go run ./cmd           # Run server
+go build -o app ./cmd/cmd.go  # Build binary
+#go test ./...          # Run tests
+#go test ./... -race -cover    # Tests as CI runs them
+go vet ./...           # Static analysis
+go fmt ./...           # Format code
+go mod tidy            # Sync dependencies
+```
+
+Tests are pure unit tests (testify + testify/mock; repositories mocked via
+interfaces) and need no database. Currently, this is still in feat/test branch and not merged to main yet.
+
+### Docker
+
+```bash
+docker build -t bdgcafe .                       # Build the service image (has a /health HEALTHCHECK)
+#docker build -f Dockerfile.test -t bdgcafe-test .  # Run the test suite as a CI gate
 ```
 
 ## Architecture
@@ -89,11 +104,20 @@ All `/v1` responses use a standard envelope:
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
 | `GET` | `/v1/quicksearch` | Typeahead search over cafes, POIs, areas, districts |
+| `GET` | `/v1/location` | List districts |
+| `GET` | `/v1/location/:id` | Detail for an area / POI / district |
 | `GET` | `/v1/search/cafes` | Cafe discovery with polygon, radius, or global mode |
 | `GET` | `/v1/cafe/:id` | Full detail for a single cafe |
 | `GET` | `/v1/cafe/:id/review` | Review and ratings for a single cafe |
+| `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
 
 See [`docs/api-contracts.md`](docs/api-contracts.md) for full request/response schemas.
+
+### Localization
+
+Content is bilingual. Send `Accept-Language: en` or `Accept-Language: id` to
+select the locale; it defaults to Indonesian (`id`) when the header is absent or
+unrecognised.
 
 ### Quick examples
 
@@ -102,8 +126,8 @@ See [`docs/api-contracts.md`](docs/api-contracts.md) for full request/response s
 GET /v1/quicksearch?q=dreezel
 GET /v1/quicksearch?q=dago&type=area
 
-# Search cafes inside an area
-GET /v1/search/cafes?query_id=dago&query_type=area&tag=wifi-friendly
+# Search cafes inside an area (tags is a comma-separated list)
+GET /v1/search/cafes?query_id=dago&query_type=area&tags=wifi-friendly
 
 # Radius search from coordinates, sorted by distance
 GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
@@ -112,3 +136,15 @@ GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
 GET /v1/cafe/accio-coffee
 GET /v1/cafe/accio-coffee/review
 ```
+
+## License
+
+Copyright © 2026 Muhammad Raditya.
+
+This project is licensed under the
+[Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/).
+See [`LICENSE`](LICENSE) for the full text.
+
+You are free to **fork, use, and adapt** this code **for personal,
+non-commercial purposes**, provided you give appropriate credit and link back
+to this repository. **Commercial use is not permitted.**

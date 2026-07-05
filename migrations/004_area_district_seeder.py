@@ -5,6 +5,10 @@ Seeds area and district locations from OpenStreetMap polygon data.
 - Districts: uses hardcoded approximate bounding polygons (informal Bandung regions).
 
 Run from anywhere: python3 migrations/005_area_district_seeder.py
+
+Legal disclaimer: Data were fetched from OSM only for references, while later i've manually adjusted the polygons to 
+better fit my needs. No pure OSM data is used in production. 
+The OSM data is licensed under the Open Database License (ODbL) by the OpenStreetMap Foundation (OSMF).
 """
 
 import json

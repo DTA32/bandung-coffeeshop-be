@@ -13,10 +13,13 @@ BDGCafe is a personal Bandung coffee shop review and discovery site. This Go bac
 go run ./cmd
 
 # Build binary
-go build -o app ./cmd
+go build -o app ./cmd/cmd.go
 
-# Tests (testify + go.uber.org/mock available; no tests written yet)
-go test ./...
+# Tests — testify + testify/mock, white-box (same-package _test.go),
+# repositories mocked via consumer interfaces; no DB required.
+# update: currently still in feat/test branch, not merged to main yet
+#go test ./...
+#go test ./... -race -cover   # how CI runs it
 
 # Static analysis and formatting
 go vet ./...
@@ -25,11 +28,27 @@ go fmt ./...
 # Sync dependencies
 go mod tidy
 
-# Apply DB schema (requires pg_trgm and postgis extensions)
+# Docker: build/run the service (multi-stage, includes a /health HEALTHCHECK)
+docker build -t bdgcafe .
+# Docker: run the test suite as a CI gate (build fails if go vet / go test fails)
+#docker build -f Dockerfile.test -t bdgcafe-test .
+```
+
+### Database setup
+
+```bash
+# 1. Schema — extensions (pg_trgm, postgis), enums, tables, and indexes
 psql -U postgres -d bandung_coffeeshop -f migrations/001_init.sql
 
-# Seed data from master.json (reads .env for DB creds)
-python3 migrations/generate_seed.py
+# 2. Seed cafes from cafe_master.json (reads .env for DB creds)
+python3 migrations/002_cafe_seeder.py
+
+# 3. Reference + i18n data: tags, rating categories, Indonesian translations,
+#    rating descriptions, rating_type_label rows
+psql -U postgres -d bandung_coffeeshop -f migrations/003_data_seeder.sql
+
+# 4. Seed area/district polygons from OpenStreetMap (Nominatim) + hardcoded regions
+python3 migrations/004_area_district_seeder.py
 ```
 
 Copy `.env.example` → `.env` and fill in credentials before running.
@@ -42,24 +61,46 @@ Copy `.env.example` → `.env` and fill in credentials before running.
 Handler → Service → Repository
 ```
 
-- `cmd/cmd.go` — entrypoint: loads config, creates pgxpool, wires all layers, starts Gin router
+There are four domains — `location`, `cafe`, `filter`, and `quicksearch` — each with a handler/service/repository/model file.
+
+- `cmd/cmd.go` — entrypoint: loads config, configures CORS (all origins), creates pgxpool, wires all layers, registers routes, starts Gin router
 - `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME` and `APP_PORT` (default 8080); exposes `DSN()`
-- `handler/` — Gin HTTP layer; extracts params, calls service, responds via helpers
-- `service/` — input validation and business rules; maps domain errors to handler-visible errors
-- `repository/` — raw pgx queries against PostgreSQL
+- `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
+- `service/` — input validation and business rules; maps domain errors to handler-visible errors. Defines consumer interfaces over its repository.
+- `repository/` — raw pgx queries against PostgreSQL; owns the `Err*NotFound` sentinel errors
 - `model/` — shared request/response DTOs
-- `helper/response.go` — JSON envelope: `{"success": true, "data": ...}` / `{"success": false, "error": ...}`
-- `constants/constants.go` — enums for location types (`cafe`, `poi`, `neighbourhood`, `area`, `district`) and rating categories
+- `helper/response.go` — JSON envelope: `{"success": true, "data": ...}` / `{"success": false, "error": ...}` via `helper.Success` / `helper.Error`
+- `helper/lang.go` — resolves request locale from the `Accept-Language` header (see i18n below)
+- `constants/constants.go` — enums for location types (`cafe`, `poi`, `area`, `district`), quicksearch type selectors (`all`, `location`, `filter`), sort/order, and languages
+- `docs/api-contracts.md` — full request/response schemas for every endpoint; keep it in sync when changing the API
+- `docs/erd.mermaid` — database ERD
+
+## Internationalization
+
+Content is bilingual (English / Indonesian). Clients select a locale via the `Accept-Language` header; `helper.Lang` parses it (tolerating `q=` weighted lists), supports `en` and `id`, and falls back to `constants.DefaultLang` (`id`) when absent or unrecognised. The resolved `lang` is threaded down to the repository, which selects the matching `*_indo` column.
+
+## Testing
+
+Unit tests are white-box (same-package `_test.go`) using `testify` assertions and `testify/mock`. Each layer is tested against a hand-written mock of the consumer interface it depends on (`mocks_test.go` per package); compile-time `var _ iface = (*mock)(nil)` checks keep mocks in sync. No database is needed — repository SQL is deferred to integration testing. The suite runs under `-race -cover` in `Dockerfile.test` as a CI gate.
+Currently, this is still in feat/test branch, not merged to main yet.
 
 ## Database
 
 PostgreSQL with two required extensions: `pg_trgm` (trigram similarity for fuzzy name search) and `postgis` (geographic coordinates). Schema in `migrations/001_init.sql`; ERD in `docs/erd.mermaid`.
 
-Key tables: `location`, `cafe`, `cafe_review`, `cafe_rating`, `rating_category`, `cafe_price`, `tag`, `cafe_tag`, `location_image`.
+Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`.
 
-Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern.
+Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern. Area/district containment uses PostGIS polygons (`ST_PointOnSurface` / `ST_Contains`).
 
 ## API Endpoints
 
+See `docs/api-contracts.md` for full request/response schemas.
+
 - `GET /health`
-- `GET /v1/quicksearch?q=<query>&type=<location_type>`
+- `GET /v1/quicksearch?q=<query>&type=<all|location|filter|cafe|poi|area|district>` — typeahead
+- `GET /v1/location` — list districts
+- `GET /v1/location/:id` — location (area/POI/district) detail
+- `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured filters; sort + pagination)
+- `GET /v1/cafe/:id` — full cafe detail
+- `GET /v1/cafe/:id/review` — cafe review and ratings
+- `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories)

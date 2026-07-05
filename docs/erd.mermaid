@@ -4,42 +4,37 @@ title: Entity Relationship Diagram
 
 erDiagram
     Location {
-        string id PK
-        string name
-        string description
-        string gmaps_id
+        text id PK
+        text name
+        text description
+        text description_indo
+        text gmaps_id
         enum type
         %%"cafe", "poi", "area", "district"%%
         enum status
         %%"active", "closed", "deleted"%%
         geometry coordinates
+        timestamp created_at
+        timestamp updated_at
     }
-    
+
     LocationImage {
         int id PK
-        string location_id FK
-        string url
-        string description
+        text location_id FK
+        text url
+        text description
+        text description_indo
+        int display_order
+        timestamp created_at
+        timestamp updated_at
     }
-    
-    RatingCategory {
-        int id PK
-        string name
-        string short_description
-        string long_description
-        string slug
-        enum type
-        %%"price", "comfort", "noise", "wifi", "meals", "ambiance", "parking"%%
-        decimal lower_bound
-        decimal upper_bound
-    }
-    
+
     Cafe {
         int id PK
-        string location_id FK
-	    string instagram
-        int open_hour
-        int close_hour
+        text location_id FK "unique"
+        text instagram
+        time open_hour
+        time close_hour
         boolean is_featured
         timestamp created_at
         timestamp updated_at
@@ -53,34 +48,34 @@ erDiagram
         decimal wfc_score
         decimal personal_score
         text content
+        text content_indo
         date visited_at
         timestamp created_at
         timestamp updated_at
     }
 
-    CafeRating {
-        int id PK
-        int cafe_id FK
-        int category_id FK
-        decimal score
-        string short_description_override
-    }
-    
     Tag {
         int id PK
-        string name
-        string description
-        string slug
+        text name
+        text name_indo
+        text description
+        text description_indo
+        text slug
+        timestamp created_at
+        timestamp updated_at
     }
-    
+
     CafeTag {
-        int cafe_id FK
-        int tag_id FK
+        int cafe_id PK,FK
+        int tag_id PK,FK
+        boolean visible
+        timestamp created_at
+        timestamp updated_at
     }
 
     CafePrice {
         int id PK
-        int cafe_id FK
+        int cafe_id FK "unique"
         int price_range_min
         int price_range_max
         int coffee_price_min
@@ -89,14 +84,50 @@ erDiagram
         int snack_price_max
         int food_price_min
         int food_price_max
+        timestamp created_at
+        timestamp updated_at
     }
 
+    RatingTypeLabel {
+        text type PK
+        %%"price-rank", "vibe", "noise", "wifi", "meals", "atmosphere", "parking"%%
+        text label
+        text label_indo
+    }
 
-    Cafe ||--|| CafeReview : "has"
-    Cafe ||--o{  CafeRating : "has"
-    Cafe ||--|| CafePrice : "has"
-    Location ||--|| Cafe : "has"
-    RatingCategory ||--o{ CafeRating : "has"
+    RatingCategory {
+        int id PK
+        text name
+        text name_indo
+        text short_description
+        text short_description_indo
+        text long_description
+        text long_description_indo
+        text slug
+        text type FK
+        decimal lower_bound
+        decimal upper_bound
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    CafeRating {
+        int id PK
+        int cafe_id FK
+        text category_type FK
+        decimal score
+        text short_description_override
+        text short_description_override_indo
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    Location ||--o| Cafe : "is"
     Location ||--o{ LocationImage : "has"
+    Cafe ||--o{ CafeReview : "has"
+    Cafe ||--o| CafePrice : "has"
+    Cafe ||--o{ CafeRating : "has"
     Cafe ||--o{ CafeTag : "has"
     Tag ||--o{ CafeTag : "has"
+    RatingTypeLabel ||--o{ RatingCategory : "labels"
+    RatingTypeLabel ||--o{ CafeRating : "types"
