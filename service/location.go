@@ -23,11 +23,21 @@ var validLocationTypes = map[string]struct{}{
 	constants.LocationTypeDistrict: {},
 }
 
-type LocationService struct {
-	repo *repository.LocationRepository
+// locationRepository is the consumer-defined seam over
+// *repository.LocationRepository for unit testing; the concrete repo satisfies it.
+type locationRepository interface {
+	GetByID(ctx context.Context, id, lang string) (*repository.LocationDetailRow, error)
+	Ancestors(ctx context.Context, id string) ([]model.Location, error)
+	Descendants(ctx context.Context, row *repository.LocationDetailRow) ([]model.Location, error)
+	Images(ctx context.Context, id, lang string) ([]model.LocationImage, error)
+	Districts(ctx context.Context) ([]repository.LocationDetailRow, error)
 }
 
-func NewLocationService(repo *repository.LocationRepository) *LocationService {
+type LocationService struct {
+	repo locationRepository
+}
+
+func NewLocationService(repo locationRepository) *LocationService {
 	return &LocationService{repo: repo}
 }
 

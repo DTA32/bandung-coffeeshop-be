@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -57,11 +58,19 @@ func parseIntCSV(raw string) ([]int, error) {
 	return out, nil
 }
 
-type CafeHandler struct {
-	svc *service.CafeService
+// cafeService is the consumer-defined seam over *service.CafeService so the
+// handler can be unit-tested against a mock; the concrete service satisfies it.
+type cafeService interface {
+	Search(ctx context.Context, req model.CafeSearchRequest) (*model.CafeSearchResponse, error)
+	GetByID(ctx context.Context, locationID, lang string) (*model.CafeDetailResponse, error)
+	GetReviewByID(ctx context.Context, locationID, lang string) (*model.CafeReviewResponse, error)
 }
 
-func NewCafeHandler(svc *service.CafeService) *CafeHandler {
+type CafeHandler struct {
+	svc cafeService
+}
+
+func NewCafeHandler(svc cafeService) *CafeHandler {
 	return &CafeHandler{svc: svc}
 }
 

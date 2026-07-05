@@ -20,11 +20,18 @@ func srpSlug(slug, categoryType string) string {
 	return slug + "-" + categoryType
 }
 
-type FilterService struct {
-	repo *repository.FilterRepository
+// filterRepository is the consumer-defined seam over *repository.FilterRepository
+// for unit testing; the concrete repo satisfies it.
+type filterRepository interface {
+	Tags(ctx context.Context, lang string) ([]repository.FilterTagRow, error)
+	RatingCategories(ctx context.Context, lang string) ([]repository.FilterRatingRow, error)
 }
 
-func NewFilterService(repo *repository.FilterRepository) *FilterService {
+type FilterService struct {
+	repo filterRepository
+}
+
+func NewFilterService(repo filterRepository) *FilterService {
 	return &FilterService{repo: repo}
 }
 

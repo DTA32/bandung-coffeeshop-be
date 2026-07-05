@@ -7,7 +7,6 @@ import (
 
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
-	"github.com/dta32/bandung-coffeeshop-be/repository"
 )
 
 var ErrInvalidSearchType = errors.New("invalid search type")
@@ -20,11 +19,18 @@ const (
 	quicksearchSplitLimit = 5
 )
 
-type QuicksearchService struct {
-	repo *repository.QuicksearchRepository
+// quicksearchRepository is the consumer-defined seam over
+// *repository.QuicksearchRepository for unit testing; the concrete repo satisfies it.
+type quicksearchRepository interface {
+	Locations(ctx context.Context, q, locType string, limit int) ([]model.QuicksearchResult, error)
+	Filters(ctx context.Context, q, lang string, limit int) ([]model.QuicksearchResult, error)
 }
 
-func NewQuicksearchService(repo *repository.QuicksearchRepository) *QuicksearchService {
+type QuicksearchService struct {
+	repo quicksearchRepository
+}
+
+func NewQuicksearchService(repo quicksearchRepository) *QuicksearchService {
 	return &QuicksearchService{repo: repo}
 }
 

@@ -1,19 +1,27 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/dta32/bandung-coffeeshop-be/helper"
+	"github.com/dta32/bandung-coffeeshop-be/model"
 	"github.com/dta32/bandung-coffeeshop-be/service"
 	"github.com/gin-gonic/gin"
 )
 
-type QuicksearchHandler struct {
-	svc *service.QuicksearchService
+// quicksearchService is the consumer-defined seam over *service.QuicksearchService
+// so the handler can be unit-tested against a mock; the concrete service satisfies it.
+type quicksearchService interface {
+	Quicksearch(ctx context.Context, q, searchType, lang string) ([]model.QuicksearchResult, error)
 }
 
-func NewQuicksearchHandler(svc *service.QuicksearchService) *QuicksearchHandler {
+type QuicksearchHandler struct {
+	svc quicksearchService
+}
+
+func NewQuicksearchHandler(svc quicksearchService) *QuicksearchHandler {
 	return &QuicksearchHandler{svc: svc}
 }
 

@@ -80,11 +80,29 @@ func normLang(lang string) string {
 	return constants.LangIndonesian
 }
 
-type CafeService struct {
-	repo *repository.CafeRepository
+// cafeRepository is the consumer-defined seam over *repository.CafeRepository:
+// only the methods CafeService actually calls, so the service can be unit-tested
+// against a mock. The concrete *repository.CafeRepository satisfies it, leaving
+// cmd wiring unchanged.
+type cafeRepository interface {
+	ResolveFocus(ctx context.Context, id, queryType, lang string) (*repository.FocusLocation, error)
+	RatingCategoriesByIDs(ctx context.Context, ids []int) ([]repository.RatingCategory, error)
+	TagBySlug(ctx context.Context, slug, lang string) (*repository.Tag, error)
+	Search(ctx context.Context, p repository.CafeSearchParams) ([]repository.CafeSearchRow, int, error)
+	CafeByLocationID(ctx context.Context, locationID, lang string) (*repository.CafeDetailRow, error)
+	CafeImagesByLocationID(ctx context.Context, locationID, lang string) ([]repository.CafeImageRow, error)
+	CafePriceRankByLocationID(ctx context.Context, locationID string) (*int, error)
+	CafeExistsByLocationID(ctx context.Context, locationID string) (bool, error)
+	CafeReviewByLocationID(ctx context.Context, locationID, lang string) (*repository.ReviewRow, error)
+	CafeTagsByLocationID(ctx context.Context, locationID, lang string) ([]repository.CafeTagRow, error)
+	CafeRatingsByLocationID(ctx context.Context, locationID, lang string) ([]repository.CafeRatingRow, error)
 }
 
-func NewCafeService(repo *repository.CafeRepository) *CafeService {
+type CafeService struct {
+	repo cafeRepository
+}
+
+func NewCafeService(repo cafeRepository) *CafeService {
 	return &CafeService{repo: repo}
 }
 

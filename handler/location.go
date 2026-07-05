@@ -1,20 +1,29 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/dta32/bandung-coffeeshop-be/helper"
+	"github.com/dta32/bandung-coffeeshop-be/model"
 	"github.com/dta32/bandung-coffeeshop-be/repository"
 	"github.com/dta32/bandung-coffeeshop-be/service"
 	"github.com/gin-gonic/gin"
 )
 
-type LocationHandler struct {
-	svc *service.LocationService
+// locationService is the consumer-defined seam over *service.LocationService so
+// the handler can be unit-tested against a mock; the concrete service satisfies it.
+type locationService interface {
+	GetByID(ctx context.Context, id, lang string) (*model.LocationDetail, error)
+	ListDistricts(ctx context.Context, lang string) ([]model.LocationDetail, error)
 }
 
-func NewLocationHandler(svc *service.LocationService) *LocationHandler {
+type LocationHandler struct {
+	svc locationService
+}
+
+func NewLocationHandler(svc locationService) *LocationHandler {
 	return &LocationHandler{svc: svc}
 }
 

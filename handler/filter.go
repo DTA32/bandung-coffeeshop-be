@@ -1,19 +1,26 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
 	"github.com/dta32/bandung-coffeeshop-be/helper"
-	"github.com/dta32/bandung-coffeeshop-be/service"
+	"github.com/dta32/bandung-coffeeshop-be/model"
 	"github.com/gin-gonic/gin"
 )
 
-type FilterHandler struct {
-	svc *service.FilterService
+// filterService is the consumer-defined seam over *service.FilterService so the
+// handler can be unit-tested against a mock; the concrete service satisfies it.
+type filterService interface {
+	Get(ctx context.Context, lang string, enrich bool) (*model.FiltersResponse, error)
 }
 
-func NewFilterHandler(svc *service.FilterService) *FilterHandler {
+type FilterHandler struct {
+	svc filterService
+}
+
+func NewFilterHandler(svc filterService) *FilterHandler {
 	return &FilterHandler{svc: svc}
 }
 
