@@ -304,7 +304,7 @@ Returns full detail for a single cafe by its location slug.
 | `status` | string | Location status: `active`, `closed`, or `deleted`. |
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
-| `open_hour` / `close_hour` | string \| null | 24-hour format `"HH:MM"`. `null` if not set. |
+| `open_hour` / `close_hour` | string \| null | 24-hour format `"HH:MM"`. `null` if not set. A cafe open 24 hours is represented as `open_hour = "00:00"` and `close_hour = "23:59"`. |
 | `gmaps_id` | string \| null | The cafe's own Google Maps place ID. `null` if not set. |
 | `locations` | array | Ancestor chain of the area/neighbourhood the cafe sits in, outermost first (district, then area). Empty array if coordinates are unset or no matching area is found. |
 | `price.rank` | object \| null | Derived from the median of `price_range_min` and `price_range_max` matched against `price-rank` rating categories. `null` if price data is missing. `type` is the 0-based ordinal of the matched bucket (cheapest = 0). `label` is the bucket's localized description. |

@@ -384,15 +384,14 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	}
 
 	// Open hours: cafe is open at the given time. Handles
-	// - 24-hour cafes (open = close, always open)
+	// - same-day ranges (open < close), incl. 24-hour cafes stored as 00:00–23:59
 	// - overnight ranges (close < open)
 	// - excludes cafes with unknown (NULL)
 	if p.OpenHour != nil {
 		ohP := addArg(*p.OpenHour)
 		sb.WriteString(fmt.Sprintf(`
 			AND c.open_hour IS NOT NULL AND c.close_hour IS NOT NULL AND (
-				c.open_hour = c.close_hour
-				OR (c.close_hour > c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
+				(c.close_hour > c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
 				OR (c.close_hour < c.open_hour AND (%s::time >= c.open_hour OR %s::time <= c.close_hour)))`,
 			ohP, ohP, ohP, ohP))
 	}
