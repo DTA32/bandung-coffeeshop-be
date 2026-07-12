@@ -294,7 +294,7 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		(SELECT %s FROM cafe_tag ct
 			JOIN tag t ON t.id = ct.tag_id
 			WHERE ct.cafe_id = c.id AND ct.visible = TRUE
-			ORDER BY t.id LIMIT 1) AS remark,`,
+			ORDER BY ct.updated_at DESC, t.id LIMIT 1) AS remark,`,
 		localized(langP, "l.description_indo", "l.description"),
 		localized(langP, "t.name_indo", "t.name")))
 
@@ -631,7 +631,7 @@ func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, l
 		JOIN tag t ON t.id = ct.tag_id
 		JOIN cafe c ON c.id = ct.cafe_id
 		WHERE c.location_id = $1 AND ct.visible = TRUE
-		ORDER BY t.id
+		ORDER BY ct.updated_at DESC, t.id
 	`, localized("$2", "t.name_indo", "t.name")), locationID, lang)
 	if err != nil {
 		return nil, err
