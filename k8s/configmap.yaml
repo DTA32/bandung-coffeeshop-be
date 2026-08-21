@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bandung-coffeeshop-be-config
+data:
+  APP_PORT: "7005"
+  DB_HOST: "postgres-postgis-service"
+  DB_PORT: "5432"
