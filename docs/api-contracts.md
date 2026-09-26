@@ -198,7 +198,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 | Field | Type | Notes |
 |-------|------|-------|
 | `total` | int | Total matching cafes (across all pages). |
-| `location_name` | string | Resolved focus name; empty string when no focus or when `query_coords` is used. |
+| `location_name` | string | Resolved focus name. With `query_coords`, the name of the area containing the point, falling back to its district; empty string when the point is outside every area/district or when there is no focus. |
 | `formatted_location_name` | string | Human label: `"in <Area/District>"`, `"near <Cafe/POI>"`, `"near Selected Spot"` for raw coords, or empty. Localized. |
 | `search_description` | string | Long-form blurb: tag description (only when filtering by a single tag and nothing else), focus description (for area/district/POI), else empty. |
 | `locations` | array | Focus breadcrumb (ancestor chain, outermost first, including the focus). Empty for cafe / coordinate / global searches. |

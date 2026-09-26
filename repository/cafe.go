@@ -182,6 +182,27 @@ func (r *CafeRepository) ResolveFocus(ctx context.Context, id, queryType, lang s
 	return &f, nil
 }
 
+// LocationNameAt returns the name of the active area containing the point,
+// falling back to the containing district. Returns "" when the point lies
+// outside every area and district.
+func (r *CafeRepository) LocationNameAt(ctx context.Context, lat, lng float64) (string, error) {
+	var name string
+	err := r.db.QueryRow(ctx, `
+		SELECT name FROM location
+		WHERE type IN ('area', 'district') AND status = 'active'
+		  AND ST_Within(ST_SetSRID(ST_MakePoint($1, $2), 4326), coordinates)
+		ORDER BY (type = 'area') DESC, id
+		LIMIT 1
+	`, lng, lat).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
 func (r *CafeRepository) RatingCategoryBySlug(ctx context.Context, categoryType, slug string) (*RatingCategory, error) {
 	var rc RatingCategory
 	var lb, ub float64

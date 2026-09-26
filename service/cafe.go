@@ -221,6 +221,14 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 
 	locationName, formattedName := formatLocationLabel(req.Lang, focus, req.QueryCoords)
+	// Raw coords keep the "near Selected Spot" label but expose the containing
+	// area / district name when there is one.
+	if focus == nil && req.QueryCoords != nil {
+		locationName, err = s.repo.LocationNameAt(ctx, req.QueryCoords.Lat, req.QueryCoords.Lng)
+		if err != nil {
+			return nil, err
+		}
+	}
 	searchDescription := s.buildSearchDescription(&req, focus, tagRow)
 
 	return &model.CafeSearchResponse{
