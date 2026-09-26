@@ -433,10 +433,11 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			sb.WriteString(`cp.price_range_min ASC NULLS LAST`)
 		}
 	default:
+		hasImage := `EXISTS (SELECT 1 FROM location_image li WHERE li.location_id = l.id) DESC`
 		if p.Mode == SearchModeRadius {
-			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, c.updated_at DESC`)
+			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, ` + hasImage + `, c.updated_at DESC`)
 		} else {
-			sb.WriteString(`c.is_featured DESC, c.updated_at DESC, distance_m ASC NULLS LAST`)
+			sb.WriteString(`c.is_featured DESC, ` + hasImage + `, c.updated_at DESC, distance_m ASC NULLS LAST`)
 		}
 	}
 
@@ -446,6 +447,8 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	sizeP := addArg(p.Size)
 	offsetP := addArg((p.Page - 1) * p.Size)
 	sb.WriteString(fmt.Sprintf(` LIMIT %s OFFSET %s`, sizeP, offsetP))
+
+	fmt.Println("DEBUG: Cafe search SQL:", sb.String())
 
 	rows, err := r.db.Query(ctx, sb.String(), args...)
 	if err != nil {

@@ -59,6 +59,12 @@ unrecognised the API falls back to Indonesian (`id`). The header applies to ever
 ### Sort (`sort`)
 `default` (default), `updated_at`, `distance`, `rating`, `price_range`
 
+`default` ordering:
+- radius mode: featured first, then `distance` ↑, then cafes with at least one image, then `updated_at` ↓
+- otherwise: featured first, then cafes with at least one image, then `updated_at` ↓, then `distance` ↑
+
+Ties are broken by `id` ↑.
+
 ### Order (`order`)
 `asc`, `desc`
 
