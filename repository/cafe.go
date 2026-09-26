@@ -448,8 +448,6 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	offsetP := addArg((p.Page - 1) * p.Size)
 	sb.WriteString(fmt.Sprintf(` LIMIT %s OFFSET %s`, sizeP, offsetP))
 
-	fmt.Println("DEBUG: Cafe search SQL:", sb.String())
-
 	rows, err := r.db.Query(ctx, sb.String(), args...)
 	if err != nil {
 		return nil, 0, err
