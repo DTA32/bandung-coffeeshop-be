@@ -244,3 +244,5 @@ create table cafe_rating
 alter table cafe_rating
     owner to bdgcafe
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_location_image_location_url
+    ON location_image (location_id, url);
