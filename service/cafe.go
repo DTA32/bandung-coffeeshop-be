@@ -26,6 +26,7 @@ var (
 	ErrInvalidOpenHour         = errors.New("invalid open_hour")
 	ErrInvalidPriceRange       = errors.New("price_min cannot exceed price_max")
 	ErrDuplicateRatingType     = errors.New("duplicate rating category in filter")
+	ErrInvalidStatus           = errors.New("invalid status")
 )
 
 const (
@@ -41,6 +42,11 @@ var validSorts = map[string]struct{}{
 	constants.SortDistance:   {},
 	constants.SortRating:     {},
 	constants.SortPriceRange: {},
+}
+
+var validStatuses = map[string]struct{}{
+	constants.LocationStatusActive: {},
+	constants.LocationStatusClosed: {},
 }
 
 var validOrders = map[string]struct{}{
@@ -185,6 +191,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 
 	params.IsFeatured = req.IsFeatured
+	params.Status = req.Status
 	params.Lang = req.Lang
 	params.Sort = req.Sort
 	params.Order = req.Order
@@ -299,6 +306,13 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 	}
 	if req.PriceMin != nil && req.PriceMax != nil && *req.PriceMin > *req.PriceMax {
 		return ErrInvalidPriceRange
+	}
+
+	if req.Status == "" {
+		req.Status = constants.LocationStatusActive
+	}
+	if _, ok := validStatuses[req.Status]; !ok {
+		return ErrInvalidStatus
 	}
 
 	if req.Sort == "" {

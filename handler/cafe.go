@@ -71,6 +71,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		QueryType: c.Query("query_type"),
 		Tags:      parseCSV(c.Query("tags")),
 		OpenHour:  c.Query("open_hour"),
+		Status:    c.Query("status"),
 		Lang:      helper.Lang(c),
 		Sort:      c.Query("sort"),
 		Order:     c.Query("order"),
@@ -162,6 +163,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 			errors.Is(err, service.ErrInvalidRatingCategory),
 			errors.Is(err, service.ErrRatingSlugWithoutType),
 			errors.Is(err, service.ErrInvalidOpenHour),
+			errors.Is(err, service.ErrInvalidStatus),
 			errors.Is(err, service.ErrInvalidPriceRange),
 			errors.Is(err, service.ErrDuplicateRatingType):
 			helper.Error(c, http.StatusBadRequest, err.Error())

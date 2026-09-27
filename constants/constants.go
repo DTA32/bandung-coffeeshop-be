@@ -14,6 +14,12 @@ const (
 	QuicksearchTypeFilter   = "filter"
 )
 
+// Location status (location_status_enum). `deleted` is never exposed.
+const (
+	LocationStatusActive = "active"
+	LocationStatusClosed = "closed"
+)
+
 const (
 	RatingCategoryPriceRank = "price-rank"
 )

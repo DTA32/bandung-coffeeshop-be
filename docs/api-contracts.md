@@ -146,6 +146,7 @@ Search and discover cafes. Supports three search modes derived from inputs:
 | `price_min` | int | no | — | `0`–`999999`. |
 | `price_max` | int | no | — | `0`–`999999`. Must be ≥ `price_min`. |
 | `is_featured` | bool | no | — | `true` / `false`. |
+| `status` | enum (`active`, `closed`) | no | `active` | Cafe lifecycle status to list. `closed` covers cafes that closed or relocated (backs the `/closed-cafes` archive page). `deleted` cafes are never returned. |
 | `sort` | enum (sort) | no | `default` | `distance` requires either `query_coords` or a `query_type` of `cafe` / `poi`. |
 | `order` | enum (order) | no | server default | `asc` or `desc`. |
 | `page` | int | no | `1` | Must be positive. |
@@ -158,6 +159,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 - `query_coords` cannot coexist with `query_id`.
 - `price_min` cannot exceed `price_max`.
 - `open_hour` must be `now` or a valid `HH:MM`.
+- `status` must be `active` or `closed`.
 - `ratings` may not include two buckets of the same category type.
 - `sort=distance` requires a coordinate-based focus (either `query_coords`, or `query_type` ∈ {`cafe`, `poi`}).
 
@@ -223,6 +225,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 | 400 | `invalid ratings` / `invalid price_min` / `invalid price_max` | non-integer / out-of-range value |
 | 400 | `price_min cannot exceed price_max` | inverted price range |
 | 400 | `invalid open_hour` | not `now` and not a valid `HH:MM` |
+| 400 | `invalid status` | `status` not `active` / `closed` |
 | 400 | `duplicate rating category in filter` | two `ratings` buckets share a category type |
 | 400 | `invalid sort` / `invalid order` | not in enum |
 | 400 | `sort=distance requires query_coords` | distance sort without a coord focus |
@@ -235,6 +238,11 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 Polygon search inside an area, filtered by tags:
 ```
 GET /v1/search/cafes?query_id=dago&query_type=area&tags=wifi-friendly,quiet&page=1&size=10
+```
+
+Closed / relocated cafe archive, second page:
+```
+GET /v1/search/cafes?status=closed&page=2&size=12
 ```
 
 Radius search around user coordinates, sorted by distance:
