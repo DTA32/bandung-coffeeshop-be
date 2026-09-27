@@ -100,7 +100,7 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/quicksearch?q=<query>&type=<all|location|filter|cafe|poi|area|district>` — typeahead
 - `GET /v1/location` — list districts
 - `GET /v1/location/:id` — location (area/POI/district) detail
-- `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured filters; sort + pagination)
+- `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`) filters; sort + pagination)
 - `GET /v1/cafe/:id` — full cafe detail
 - `GET /v1/cafe/:id/review` — cafe review and ratings
 - `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories)

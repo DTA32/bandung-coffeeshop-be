@@ -83,6 +83,7 @@ type CafeSearchParams struct {
 	PriceMin      *int
 	PriceMax      *int
 	IsFeatured    *bool
+	Status        string // location status to match; the service defaults it to "active".
 
 	Lang  string
 	Sort  string
@@ -326,9 +327,10 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		COUNT(*) OVER() AS total_count
 	`, focusPointSQL, focusPointSQL))
 
-	sb.WriteString(`FROM cafe c
-		JOIN location l ON l.id = c.location_id AND l.status = 'active'
-		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`)
+	statusP := addArg(p.Status)
+	sb.WriteString(fmt.Sprintf(`FROM cafe c
+		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
+		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`, statusP))
 
 	// One aliased join per selected rating bucket. cafe_rating is UNIQUE on
 	// (cafe_id, category_type), so each join matches at most one row — no row

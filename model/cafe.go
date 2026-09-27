@@ -16,6 +16,7 @@ type CafeSearchRequest struct {
 	PriceMin    *int
 	PriceMax    *int
 	IsFeatured  *bool
+	Status      string // location status: "active" (default) or "closed".
 	Lang        string
 	Sort        string
 	Order       string
