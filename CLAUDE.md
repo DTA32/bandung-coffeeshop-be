@@ -49,6 +49,9 @@ psql -U postgres -d bandung_coffeeshop -f migrations/003_data_seeder.sql
 
 # 4. Seed area/district polygons from OpenStreetMap (Nominatim) + hardcoded regions
 python3 migrations/004_area_district_seeder.py
+
+# 5. cafe.weather column (clear / cloudy / rain) for "Match the weather"
+psql -U postgres -d bandung_coffeeshop -f migrations/005_cafe_weather.sql
 ```
 
 Copy `.env.example` → `.env` and fill in credentials before running.
@@ -61,10 +64,12 @@ Copy `.env.example` → `.env` and fill in credentials before running.
 Handler → Service → Repository
 ```
 
-There are four domains — `location`, `cafe`, `filter`, and `quicksearch` — each with a handler/service/repository/model file.
+There are four domains — `location`, `cafe`, `filter`, and `quicksearch` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search.
 
 - `cmd/cmd.go` — entrypoint: loads config, configures CORS (all origins), creates pgxpool, wires all layers, registers routes, starts Gin router
-- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME` and `APP_PORT` (default 8080); exposes `DSN()`
+- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_ADDR`/`REDIS_DB`, and `WEATHERAPI_KEY`; exposes `DSN()`
+- `cache/redis.go` — optional best-effort Redis cache (disabled when `REDIS_ADDR` is empty); every error is treated as a miss
+- `service/weather.go` — Bandung's current weather from weatherapi.com, cached 30 min in Redis (plus an in-process copy and a 24 h last-known fallback); folds provider condition codes into `clear` / `cloudy` / `rain`
 - `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
 - `service/` — input validation and business rules; maps domain errors to handler-visible errors. Defines consumer interfaces over its repository.
 - `repository/` — raw pgx queries against PostgreSQL; owns the `Err*NotFound` sentinel errors
@@ -100,7 +105,8 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/quicksearch?q=<query>&type=<all|location|filter|cafe|poi|area|district>` — typeahead
 - `GET /v1/location` — list districts
 - `GET /v1/location/:id` — location (area/POI/district) detail
-- `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`) filters; sort + pagination)
+- `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`), weather filters; sort + pagination)
+- `GET /v1/cafe/random` — one random active cafe ("Surprise me")
 - `GET /v1/cafe/:id` — full cafe detail
 - `GET /v1/cafe/:id/review` — cafe review and ratings
-- `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories)
+- `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories, price tiers, weather)

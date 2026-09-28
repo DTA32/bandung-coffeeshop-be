@@ -147,6 +147,7 @@ Search and discover cafes. Supports three search modes derived from inputs:
 | `price_max` | int | no | — | `0`–`999999`. Must be ≥ `price_min`. |
 | `is_featured` | bool | no | — | `true` / `false`. |
 | `status` | enum (`active`, `closed`) | no | `active` | Cafe lifecycle status to list. `closed` covers cafes that closed or relocated (backs the `/closed-cafes` archive page). `deleted` cafes are never returned. |
+| `weather` | string CSV | no | — | Either `current` alone (Bandung's weather right now, cached ≤ 30 min) or any of `clear`, `cloudy`, `rain`, OR-combined. Matches cafes whose admin-defined `weather` list shares at least one value. If `current` can't be resolved (no provider key, provider and caches all unavailable), the weather filter is skipped and `weather` in the response is `null`. |
 | `sort` | enum (sort) | no | `default` | `distance` requires either `query_coords` or a `query_type` of `cafe` / `poi`. |
 | `order` | enum (order) | no | server default | `asc` or `desc`. |
 | `page` | int | no | `1` | Must be positive. |
@@ -162,6 +163,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 - `status` must be `active` or `closed`.
 - `ratings` may not include two buckets of the same category type.
 - `sort=distance` requires a coordinate-based focus (either `query_coords`, or `query_type` ∈ {`cafe`, `poi`}).
+- `weather` values must be `clear`, `cloudy`, `rain`, or a lone `current`.
 
 ### Success `200`
 
@@ -179,6 +181,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
     ],
     "page": 1,
     "size": 8,
+    "weather": { "condition": "rain", "temp_c": 21.4, "observed_at": "2026-09-28T10:30:00+07:00" },
     "cafes": [
       {
         "id": "anjis-dago",
@@ -205,6 +208,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 | `search_description` | string | Long-form blurb: tag description (only when filtering by a single tag and nothing else), focus description (for area/district/POI), else empty. |
 | `locations` | array | Focus breadcrumb (ancestor chain, outermost first, including the focus). Empty for cafe / coordinate / global searches. |
 | `page`, `size` | int | Echo of the (normalized) pagination request. |
+| `weather` | object \| null | Only with `weather=current`: the reading it resolved to — `condition` (`clear` / `cloudy` / `rain`), `temp_c`, and `observed_at` (provider's last update, RFC 3339 in WIB). `null` for every other request, or when no reading was available. |
 | `cafes[].description` | string | Address / short description (may be empty). |
 | `cafes[].coordinates` | object \| null | `null` if the cafe has no stored coordinates. |
 | `cafes[].thumbnail` | string \| null | Image URL or null. |
@@ -227,6 +231,8 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 | 400 | `invalid open_hour` | not `now` and not a valid `HH:MM` |
 | 400 | `invalid status` | `status` not `active` / `closed` |
 | 400 | `duplicate rating category in filter` | two `ratings` buckets share a category type |
+| 400 | `invalid weather` | a `weather` value outside `clear` / `cloudy` / `rain` / `current` |
+| 400 | `weather=current cannot be combined with other weather values` | `current` sent alongside another value |
 | 400 | `invalid sort` / `invalid order` | not in enum |
 | 400 | `sort=distance requires query_coords` | distance sort without a coord focus |
 | 404 | `focus location not found` | `query_id` does not resolve |
@@ -258,6 +264,12 @@ GET /v1/search/cafes?is_featured=true&sort=rating&order=desc
 Filter by rating buckets and price, open now:
 ```
 GET /v1/search/cafes?ratings=4,9&price_min=20000&price_max=50000&open_hour=now
+```
+
+Match Bandung's current weather, or pick conditions manually:
+```
+GET /v1/search/cafes?weather=current
+GET /v1/search/cafes?weather=cloudy,rain
 ```
 
 ---
@@ -538,8 +550,8 @@ GET /v1/location/dago
 ## 7. `GET /v1/filters`
 
 Returns the option lists that power the explore filter modal and SRP: selectable
-tags, rating categories (grouped by type, each with its buckets), and price
-tiers. The `price-rank` rating category is surfaced as `price_tiers` rather than
+tags, rating categories (grouped by type, each with its buckets), price
+tiers, and weather conditions. The `price-rank` rating category is surfaced as `price_tiers` rather than
 a rating group.
 
 ### Query params
@@ -571,6 +583,11 @@ a rating group.
       { "label": "Bandung", "slug": "bandung-price-rank", "min": 0,     "max": 25000 },
       { "label": "Riau",    "slug": "",                   "min": 25001, "max": 45000 },
       { "label": "Jakarta", "slug": "",                   "min": 45001, "max": null }
+    ],
+    "weather": [
+      { "slug": "clear",  "name": "Clear" },
+      { "slug": "cloudy", "name": "Cloudy" },
+      { "slug": "rain",   "name": "Rain" }
     ]
   }
 }
@@ -589,6 +606,8 @@ a rating group.
 | `price_tiers[].slug` | string | SRP slug `"<slug>-price-rank"`, or `""` when not SRP-eligible. |
 | `price_tiers[].max` | int \| null | Upper bound (Rupiah); `null` on the open-ended top tier. |
 | `price_tiers[].long_description` | string | Only present when `enrich_content=true`. |
+| `weather[].slug` | string | Value for the search `weather` filter. Fixed set; the `current` selector is not listed (clients render it themselves). |
+| `weather[].name` | string | Localized label. |
 
 ### Errors
 | Status | `error` | When |
@@ -600,3 +619,28 @@ a rating group.
 GET /v1/filters
 GET /v1/filters?enrich_content=true
 ```
+
+---
+
+## 8. `GET /v1/cafe/random`
+
+Returns one active cafe picked uniformly at random — powers the homepage
+"Surprise me" button. Repeats are possible across calls. Responds with
+`Cache-Control: no-store`.
+
+### Success `200`
+
+```json
+{
+  "success": true,
+  "data": { "id": "anjis-dago", "name": "Kopi Anjis Dago" }
+}
+```
+
+`id` is the cafe's location slug, usable with `GET /v1/cafe/:id`.
+
+### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 404 | `cafe not found` | No active cafe exists |
+| 500 | `failed to pick a cafe` | Unexpected server / DB error |
