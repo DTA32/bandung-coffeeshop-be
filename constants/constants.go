@@ -43,3 +43,16 @@ const (
 	// DefaultLang is used when the client sends no (recognised) Accept-Language.
 	DefaultLang = LangIndonesian
 )
+
+// Weather conditions a cafe can be tagged with (cafe.weather) and filtered by.
+// WeatherCurrent is a search-only selector resolved to today's condition.
+const (
+	WeatherClear   = "clear"
+	WeatherCloudy  = "cloudy"
+	WeatherRain    = "rain"
+	WeatherCurrent = "current"
+)
+
+// WeatherValues is the canonical, display-ordered weather set; it must match
+// the cafe_weather_valid CHECK in migrations/005_cafe_weather.sql.
+var WeatherValues = []string{WeatherClear, WeatherCloudy, WeatherRain}

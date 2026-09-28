@@ -84,6 +84,7 @@ type CafeSearchParams struct {
 	PriceMax      *int
 	IsFeatured    *bool
 	Status        string // location status to match; the service defaults it to "active".
+	Weather       []string
 
 	Lang  string
 	Sort  string
@@ -417,6 +418,13 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 				(c.close_hour > c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
 				OR (c.close_hour < c.open_hour AND (%s::time >= c.open_hour OR %s::time <= c.close_hour)))`,
 			ohP, ohP, ohP, ohP))
+	}
+
+	// Weather (OR): the cafe suits at least one of the selected conditions.
+	if len(p.Weather) > 0 {
+		wP := addArg(p.Weather)
+		sb.WriteString(fmt.Sprintf(`
+			AND c.weather && %s::text[]`, wP))
 	}
 
 	if len(p.ExcludeIDs) > 0 {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,8 @@ var (
 	ErrInvalidPriceRange       = errors.New("price_min cannot exceed price_max")
 	ErrDuplicateRatingType     = errors.New("duplicate rating category in filter")
 	ErrInvalidStatus           = errors.New("invalid status")
+	ErrInvalidWeather          = errors.New("invalid weather")
+	ErrWeatherCurrentExclusive = errors.New("weather=current cannot be combined with other weather values")
 )
 
 const (
@@ -86,12 +90,18 @@ func normLang(lang string) string {
 	return constants.LangIndonesian
 }
 
-type CafeService struct {
-	repo *repository.CafeRepository
+// currentWeather resolves weather=current; satisfied by *WeatherService.
+type currentWeather interface {
+	Current(ctx context.Context) (*model.Weather, error)
 }
 
-func NewCafeService(repo *repository.CafeRepository) *CafeService {
-	return &CafeService{repo: repo}
+type CafeService struct {
+	repo    *repository.CafeRepository
+	weather currentWeather
+}
+
+func NewCafeService(repo *repository.CafeRepository, weather currentWeather) *CafeService {
+	return &CafeService{repo: repo, weather: weather}
 }
 
 func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (*model.CafeSearchResponse, error) {
@@ -166,6 +176,23 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	}
 	params.PriceMin = req.PriceMin
 	params.PriceMax = req.PriceMax
+
+	// Weather: "current" resolves to Bandung's reading right now. Without a
+	// reading the filter is dropped rather than failing the search, and the
+	// null response weather tells the client no banner applies.
+	var weather *model.Weather
+	switch {
+	case len(req.Weather) == 1 && req.Weather[0] == constants.WeatherCurrent:
+		w, werr := s.weather.Current(ctx)
+		if werr != nil {
+			log.Printf("search: weather=current unavailable, ignoring filter: %v", werr)
+			break
+		}
+		weather = w
+		params.Weather = []string{w.Condition}
+	case len(req.Weather) > 0:
+		params.Weather = req.Weather
+	}
 
 	switch {
 	case focus != nil && (focus.Type == constants.LocationTypeArea || focus.Type == constants.LocationTypeDistrict):
@@ -247,6 +274,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		Cafes:                 cafes,
 		Page:                  req.Page,
 		Size:                  req.Size,
+		Weather:               weather,
 	}, nil
 }
 
@@ -306,6 +334,17 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 	}
 	if req.PriceMin != nil && req.PriceMax != nil && *req.PriceMin > *req.PriceMax {
 		return ErrInvalidPriceRange
+	}
+	for _, w := range req.Weather {
+		if w == constants.WeatherCurrent {
+			if len(req.Weather) > 1 {
+				return ErrWeatherCurrentExclusive
+			}
+			continue
+		}
+		if !slices.Contains(constants.WeatherValues, w) {
+			return ErrInvalidWeather
+		}
 	}
 
 	if req.Status == "" {

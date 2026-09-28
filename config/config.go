@@ -17,6 +17,9 @@ type Config struct {
 	// RedisAddr is host:port; empty disables the Redis cache.
 	RedisAddr string
 	RedisDB   int
+
+	// WeatherAPIKey is the weatherapi.com key; empty disables weather lookups.
+	WeatherAPIKey string
 }
 
 func Load() *Config {
@@ -26,14 +29,15 @@ func Load() *Config {
 	}
 	redisDB, _ := strconv.Atoi(os.Getenv("REDIS_DB"))
 	return &Config{
-		DBHost:     os.Getenv("DB_HOST"),
-		DBPort:     os.Getenv("DB_PORT"),
-		DBUser:     os.Getenv("DB_USER"),
-		DBPassword: os.Getenv("DB_PASSWORD"),
-		DBName:     os.Getenv("DB_NAME"),
-		AppPort:    port,
-		RedisAddr:  os.Getenv("REDIS_ADDR"),
-		RedisDB:    redisDB,
+		DBHost:        os.Getenv("DB_HOST"),
+		DBPort:        os.Getenv("DB_PORT"),
+		DBUser:        os.Getenv("DB_USER"),
+		DBPassword:    os.Getenv("DB_PASSWORD"),
+		DBName:        os.Getenv("DB_NAME"),
+		AppPort:       port,
+		RedisAddr:     os.Getenv("REDIS_ADDR"),
+		RedisDB:       redisDB,
+		WeatherAPIKey: os.Getenv("WEATHERAPI_KEY"),
 	}
 }
 
