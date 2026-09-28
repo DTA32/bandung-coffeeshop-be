@@ -67,8 +67,8 @@ Handler → Service → Repository
 There are four domains — `location`, `cafe`, `filter`, and `quicksearch` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search.
 
 - `cmd/cmd.go` — entrypoint: loads config, configures CORS (all origins), creates pgxpool, wires all layers, registers routes, starts Gin router
-- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_ADDR`/`REDIS_DB`, and `WEATHERAPI_KEY`; exposes `DSN()`
-- `cache/redis.go` — optional best-effort Redis cache (disabled when `REDIS_ADDR` is empty); every error is treated as a miss
+- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_HOST`/`REDIS_DB`, and `WEATHERAPI_KEY`; exposes `DSN()`
+- `cache/redis.go` — optional best-effort Redis cache (disabled when `REDIS_HOST` is empty); every error is treated as a miss
 - `service/weather.go` — Bandung's current weather from weatherapi.com, cached 30 min in Redis (plus an in-process copy and a 24 h last-known fallback); folds provider condition codes into `clear` / `cloudy` / `rain`
 - `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
 - `service/` — input validation and business rules; maps domain errors to handler-visible errors. Defines consumer interfaces over its repository.

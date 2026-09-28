@@ -43,11 +43,11 @@ func main() {
 	locationSvc := service.NewLocationService(locationRepo)
 	locationHdlr := handler.NewLocationHandler(locationSvc)
 
-	// Redis is an optional, best-effort cache: without REDIS_ADDR (or with
+	// Redis is an optional, best-effort cache: without REDIS_HOST (or with
 	// Redis down) callers fall back to their source.
 	var weatherCache service.WeatherCache
-	if cfg.RedisAddr != "" {
-		rdb := cache.NewRedis(cfg.RedisAddr, cfg.RedisDB)
+	if cfg.RedisHost != "" {
+		rdb := cache.NewRedis(cfg.RedisHost, cfg.RedisDB)
 		defer rdb.Close()
 		if err := rdb.Ping(context.Background()); err != nil {
 			log.Printf("redis ping failed (continuing): %v", err)
