@@ -47,7 +47,7 @@ func main() {
 	// Redis down) callers fall back to their source.
 	var weatherCache service.WeatherCache
 	if cfg.RedisHost != "" {
-		rdb := cache.NewRedis(cfg.RedisHost, cfg.RedisDB)
+		rdb := cache.NewRedis(cfg.RedisAddr(), cfg.RedisDB)
 		defer rdb.Close()
 		if err := rdb.Ping(context.Background()); err != nil {
 			log.Printf("redis ping failed (continuing): %v", err)
