@@ -183,6 +183,21 @@ func (h *CafeHandler) Search(c *gin.Context) {
 	helper.Success(c, res)
 }
 
+func (h *CafeHandler) Random(c *gin.Context) {
+	res, err := h.svc.Random(c.Request.Context())
+	if err != nil {
+		if errors.Is(err, repository.ErrCafeNotFound) {
+			helper.Error(c, http.StatusNotFound, err.Error())
+		} else {
+			helper.Error(c, http.StatusInternalServerError, "failed to pick a cafe")
+		}
+		return
+	}
+	// Every call must return a fresh pick; keep proxies/browsers from caching.
+	c.Header("Cache-Control", "no-store")
+	helper.Success(c, res)
+}
+
 func (h *CafeHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	res, err := h.svc.GetByID(c.Request.Context(), id, helper.Lang(c))

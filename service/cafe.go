@@ -444,6 +444,15 @@ func formatThousand(v int) string {
 	return strconv.Itoa(v)
 }
 
+// Random returns a random active cafe for the homepage "Surprise me" button.
+func (s *CafeService) Random(ctx context.Context) (*model.RandomCafe, error) {
+	id, name, err := s.repo.RandomCafe(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &model.RandomCafe{ID: id, Name: name}, nil
+}
+
 func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*model.CafeDetailResponse, error) {
 	row, err := s.repo.CafeByLocationID(ctx, locationID, lang)
 	if err != nil {

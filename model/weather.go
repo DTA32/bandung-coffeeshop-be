@@ -8,3 +8,8 @@ type Weather struct {
 	TempC      float64   `json:"temp_c"`
 	ObservedAt time.Time `json:"observed_at"` // provider's last update, in WIB
 }
+
+type RandomCafe struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
