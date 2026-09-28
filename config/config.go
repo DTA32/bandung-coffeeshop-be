@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -12,6 +13,10 @@ type Config struct {
 	DBPassword string
 	DBName     string
 	AppPort    string
+
+	// RedisAddr is host:port; empty disables the Redis cache.
+	RedisAddr string
+	RedisDB   int
 }
 
 func Load() *Config {
@@ -19,6 +24,7 @@ func Load() *Config {
 	if port == "" {
 		port = "8080"
 	}
+	redisDB, _ := strconv.Atoi(os.Getenv("REDIS_DB"))
 	return &Config{
 		DBHost:     os.Getenv("DB_HOST"),
 		DBPort:     os.Getenv("DB_PORT"),
@@ -26,6 +32,8 @@ func Load() *Config {
 		DBPassword: os.Getenv("DB_PASSWORD"),
 		DBName:     os.Getenv("DB_NAME"),
 		AppPort:    port,
+		RedisAddr:  os.Getenv("REDIS_ADDR"),
+		RedisDB:    redisDB,
 	}
 }
 
