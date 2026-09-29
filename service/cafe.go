@@ -90,17 +90,12 @@ func normLang(lang string) string {
 	return constants.LangIndonesian
 }
 
-// currentWeather resolves weather=current; satisfied by *WeatherService.
-type currentWeather interface {
-	Current(ctx context.Context) (*model.Weather, error)
-}
-
 type CafeService struct {
 	repo    *repository.CafeRepository
-	weather currentWeather
+	weather *WeatherService
 }
 
-func NewCafeService(repo *repository.CafeRepository, weather currentWeather) *CafeService {
+func NewCafeService(repo *repository.CafeRepository, weather *WeatherService) *CafeService {
 	return &CafeService{repo: repo, weather: weather}
 }
 

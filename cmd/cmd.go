@@ -45,22 +45,21 @@ func main() {
 
 	// Redis is an optional, best-effort cache: without REDIS_HOST (or with
 	// Redis down) callers fall back to their source.
-	var weatherCache service.WeatherCache
+	var redisCache *cache.Redis
 	if cfg.RedisHost != "" {
-		rdb := cache.NewRedis(cfg.RedisAddr(), cfg.RedisDB)
-		defer rdb.Close()
-		if err := rdb.Ping(context.Background()); err != nil {
+		redisCache = cache.NewRedis(cfg.RedisAddr(), cfg.RedisDB)
+		defer redisCache.Close()
+		if err := redisCache.Ping(context.Background()); err != nil {
 			log.Printf("redis ping failed (continuing): %v", err)
 		} else {
 			log.Println("redis connected")
 		}
-		weatherCache = rdb
 	}
 	if cfg.WeatherAPIKey == "" {
 		log.Println("WEATHERAPI_KEY not set; weather=current searches skip the weather filter")
 	}
 	weatherRepo := repository.NewWeatherRepository(cfg.WeatherAPIKey)
-	weatherSvc := service.NewWeatherService(weatherRepo, weatherCache)
+	weatherSvc := service.NewWeatherService(weatherRepo, redisCache)
 
 	cafeRepo := repository.NewCafeRepository(pool)
 	cafeSvc := service.NewCafeService(cafeRepo, weatherSvc)

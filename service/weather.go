@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dta32/bandung-coffeeshop-be/cache"
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
 	"github.com/dta32/bandung-coffeeshop-be/repository"
@@ -31,20 +32,9 @@ const (
 
 var wib = time.FixedZone("WIB", 7*3600)
 
-// WeatherCache is the subset of cache.Redis the weather service needs.
-type WeatherCache interface {
-	Get(ctx context.Context, key string) ([]byte, error)
-	Set(ctx context.Context, key string, val []byte, ttl time.Duration) error
-}
-
-// weatherSource is the provider lookup; satisfied by *repository.WeatherRepository.
-type weatherSource interface {
-	Current(ctx context.Context, lat, lng float64) (*repository.CurrentWeatherRow, error)
-}
-
 type WeatherService struct {
-	repo  weatherSource
-	cache WeatherCache // nil = no shared cache; the in-process copy still applies
+	repo  *repository.WeatherRepository
+	cache *cache.Redis
 	group singleflight.Group
 
 	mu       sync.Mutex
@@ -52,8 +42,8 @@ type WeatherService struct {
 	lastSeen time.Time
 }
 
-func NewWeatherService(repo weatherSource, cache WeatherCache) *WeatherService {
-	return &WeatherService{repo: repo, cache: cache}
+func NewWeatherService(repo *repository.WeatherRepository, redisCache *cache.Redis) *WeatherService {
+	return &WeatherService{repo: repo, cache: redisCache}
 }
 
 // Current returns Bandung's current weather, refreshed at most every 30
