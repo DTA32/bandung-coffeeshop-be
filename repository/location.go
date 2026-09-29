@@ -181,7 +181,7 @@ func (r *LocationRepository) Districts(ctx context.Context) ([]LocationDetailRow
 		SELECT id, name, type::text
 		FROM location
 		WHERE type = 'district' AND status = 'active'
-		ORDER BY name
+		ORDER BY updated_at DESC
 	`)
 	if err != nil {
 		return nil, err
