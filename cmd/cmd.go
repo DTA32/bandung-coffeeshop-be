@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/dta32/bandung-coffeeshop-be/cache"
 	"github.com/dta32/bandung-coffeeshop-be/config"
 	"github.com/dta32/bandung-coffeeshop-be/handler"
 	"github.com/dta32/bandung-coffeeshop-be/repository"
@@ -42,8 +43,26 @@ func main() {
 	locationSvc := service.NewLocationService(locationRepo)
 	locationHdlr := handler.NewLocationHandler(locationSvc)
 
+	// Redis is an optional, best-effort cache: without REDIS_HOST (or with
+	// Redis down) callers fall back to their source.
+	var redisCache *cache.Redis
+	if cfg.RedisHost != "" {
+		redisCache = cache.NewRedis(cfg.RedisAddr(), cfg.RedisDB)
+		defer redisCache.Close()
+		if err := redisCache.Ping(context.Background()); err != nil {
+			log.Printf("redis ping failed (continuing): %v", err)
+		} else {
+			log.Println("redis connected")
+		}
+	}
+	if cfg.WeatherAPIKey == "" {
+		log.Println("WEATHERAPI_KEY not set; weather=current searches skip the weather filter")
+	}
+	weatherRepo := repository.NewWeatherRepository(cfg.WeatherAPIKey)
+	weatherSvc := service.NewWeatherService(weatherRepo, redisCache)
+
 	cafeRepo := repository.NewCafeRepository(pool)
-	cafeSvc := service.NewCafeService(cafeRepo)
+	cafeSvc := service.NewCafeService(cafeRepo, weatherSvc)
 	cafeHdlr := handler.NewCafeHandler(cafeSvc)
 
 	filterRepo := repository.NewFilterRepository(pool)
@@ -64,6 +83,7 @@ func main() {
 		v1.GET("/location", locationHdlr.List)
 		v1.GET("/location/:id", locationHdlr.GetByID)
 		v1.GET("/search/cafes", cafeHdlr.Search)
+		v1.GET("/cafe/random", cafeHdlr.Random)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
 		v1.GET("/filters", filterHdlr.Get)

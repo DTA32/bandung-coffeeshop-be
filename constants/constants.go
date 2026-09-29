@@ -43,3 +43,12 @@ const (
 	// DefaultLang is used when the client sends no (recognised) Accept-Language.
 	DefaultLang = LangIndonesian
 )
+
+const (
+	WeatherClear   = "clear"
+	WeatherCloudy  = "cloudy"
+	WeatherRain    = "rain"
+	WeatherCurrent = "current"
+)
+
+var WeatherValues = []string{WeatherClear, WeatherCloudy, WeatherRain}

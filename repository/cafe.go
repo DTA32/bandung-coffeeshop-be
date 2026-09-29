@@ -84,6 +84,7 @@ type CafeSearchParams struct {
 	PriceMax      *int
 	IsFeatured    *bool
 	Status        string // location status to match; the service defaults it to "active".
+	Weather       []string
 
 	Lang  string
 	Sort  string
@@ -419,6 +420,13 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			ohP, ohP, ohP, ohP))
 	}
 
+	// Weather (OR): the cafe suits at least one of the selected conditions.
+	if len(p.Weather) > 0 {
+		wP := addArg(p.Weather)
+		sb.WriteString(fmt.Sprintf(`
+			AND c.weather && %s::text[]`, wP))
+	}
+
 	if len(p.ExcludeIDs) > 0 {
 		idPs := make([]string, len(p.ExcludeIDs))
 		for i, id := range p.ExcludeIDs {
@@ -609,6 +617,20 @@ func (r *CafeRepository) CafePriceRankByLocationID(ctx context.Context, location
 		return nil, err
 	}
 	return priceRank, nil
+}
+
+func (r *CafeRepository) RandomCafe(ctx context.Context) (id, name string, err error) {
+	err = r.db.QueryRow(ctx, `
+		SELECT l.id, l.name
+		FROM cafe c
+		JOIN location l ON l.id = c.location_id AND l.status = 'active'
+		ORDER BY random()
+		LIMIT 1
+	`).Scan(&id, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrCafeNotFound
+	}
+	return id, name, err
 }
 
 func (r *CafeRepository) CafeExistsByLocationID(ctx context.Context, locationID string) (bool, error) {

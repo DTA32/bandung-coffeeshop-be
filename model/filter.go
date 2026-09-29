@@ -7,6 +7,12 @@ type FiltersResponse struct {
 	Tags             []FilterTag            `json:"tags"`
 	RatingCategories []FilterRatingCategory `json:"rating_categories"`
 	PriceTiers       []FilterPriceTier      `json:"price_tiers"`
+	Weather          []FilterWeather        `json:"weather"`
+}
+
+type FilterWeather struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 type FilterTag struct {
