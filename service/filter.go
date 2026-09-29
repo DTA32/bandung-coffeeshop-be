@@ -20,6 +20,19 @@ func srpSlug(slug, categoryType string) string {
 	return slug + "-" + categoryType
 }
 
+var weatherLabels = map[string]map[string]string{
+	constants.LangEnglish: {
+		constants.WeatherClear:  "Clear",
+		constants.WeatherCloudy: "Cloudy",
+		constants.WeatherRain:   "Rain",
+	},
+	constants.LangIndonesian: {
+		constants.WeatherClear:  "Cerah",
+		constants.WeatherCloudy: "Mendung",
+		constants.WeatherRain:   "Hujan",
+	},
+}
+
 type FilterService struct {
 	repo *repository.FilterRepository
 }
@@ -103,9 +116,17 @@ func (s *FilterService) Get(ctx context.Context, lang string, enrich bool) (*mod
 		priceTiers[n-1].Max = nil
 	}
 
+	// Weather options are a fixed set (see constants.WeatherValues); the
+	// live "current" selector is not listed — the client renders it itself.
+	weather := make([]model.FilterWeather, 0, len(constants.WeatherValues))
+	for _, w := range constants.WeatherValues {
+		weather = append(weather, model.FilterWeather{Slug: w, Name: weatherLabels[normLang(lang)][w]})
+	}
+
 	return &model.FiltersResponse{
 		Tags:             tags,
 		RatingCategories: cats,
 		PriceTiers:       priceTiers,
+		Weather:          weather,
 	}, nil
 }

@@ -132,7 +132,7 @@ def main():
             "lat": val.get("lat", 0),
             "lng": val.get("lng", 0),
         })
-        cafes.append(loc_id)
+        cafes.append({"location_id": loc_id, "weather": val.get("weather", [])})
 
         review = val.get("review", "")
         if review:
@@ -160,9 +160,15 @@ def main():
                 locations,
             )
 
+            # weather: optional list of "clear" | "cloudy" | "rain" per cafe
+            # (see 005_cafe_weather.sql); the cast keeps an empty list typed.
             cur.executemany(
-                "INSERT INTO cafe (location_id) VALUES (%s) ON CONFLICT DO NOTHING",
-                [(lid,) for lid in cafes],
+                """
+                INSERT INTO cafe (location_id, weather)
+                VALUES (%(location_id)s, %(weather)s::text[])
+                ON CONFLICT DO NOTHING
+                """,
+                cafes,
             )
 
             cur.executemany(

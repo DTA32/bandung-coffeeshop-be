@@ -17,6 +17,7 @@ type CafeSearchRequest struct {
 	PriceMax    *int
 	IsFeatured  *bool
 	Status      string // location status: "active" (default) or "closed".
+	Weather     []string
 	Lang        string
 	Sort        string
 	Order       string
@@ -45,6 +46,7 @@ type CafeSearchResponse struct {
 	Cafes                 []CafeDetail `json:"cafes"`
 	Page                  int          `json:"page"`
 	Size                  int          `json:"size"`
+	Weather               *Weather     `json:"weather"`
 }
 
 type CafeDetailResponse struct {
