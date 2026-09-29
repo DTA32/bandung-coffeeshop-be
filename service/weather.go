@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Bandung city centre (Alun-alun); one reading serves the whole city.
 const (
 	bandungLat = -6.9175
 	bandungLng = 107.6191
@@ -25,9 +24,7 @@ const (
 	weatherFreshKey = "bdgcafe:weather:bandung"
 	weatherLastKey  = "bdgcafe:weather:bandung:last"
 	weatherFreshTTL = 30 * time.Minute
-	// weatherLastTTL bounds how stale a fallback reading may get while the
-	// provider is failing.
-	weatherLastTTL = 24 * time.Hour
+	weatherLastTTL  = 24 * time.Hour
 )
 
 var wib = time.FixedZone("WIB", 7*3600)
@@ -38,7 +35,7 @@ type WeatherService struct {
 	group singleflight.Group
 
 	mu       sync.Mutex
-	last     *model.Weather // in-process copy: Redis-less mode and stale fallback
+	last     *model.Weather
 	lastSeen time.Time
 }
 
@@ -46,10 +43,6 @@ func NewWeatherService(repo *repository.WeatherRepository, redisCache *cache.Red
 	return &WeatherService{repo: repo, cache: redisCache}
 }
 
-// Current returns Bandung's current weather, refreshed at most every 30
-// minutes. Lookup order: Redis fresh key → in-process copy younger than 30
-// min → provider → Redis last-known key → in-process last-known copy. Returns an error only when none of them has a
-// reading.
 func (s *WeatherService) Current(ctx context.Context) (*model.Weather, error) {
 	if w := s.fromCache(ctx, weatherFreshKey); w != nil {
 		return w, nil
@@ -110,7 +103,6 @@ func (s *WeatherService) fetch(ctx context.Context) (*model.Weather, error) {
 	return w, nil
 }
 
-// fromCache reads a reading from Redis; any error or miss yields nil.
 func (s *WeatherService) fromCache(ctx context.Context, key string) *model.Weather {
 	if s.cache == nil {
 		return nil
@@ -127,7 +119,6 @@ func (s *WeatherService) fromCache(ctx context.Context, key string) *model.Weath
 	return &w
 }
 
-// memo returns the in-process reading if it was fetched within maxAge.
 func (s *WeatherService) memo(maxAge time.Duration) *model.Weather {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -137,10 +128,6 @@ func (s *WeatherService) memo(maxAge time.Duration) *model.Weather {
 	return s.last
 }
 
-// weatherCondition folds a weatherapi.com condition code
-// (https://www.weatherapi.com/docs/weather_conditions.json) into the three
-// values cafes are tagged with. Anything wet — drizzle, rain, showers,
-// thunder, sleet, snow — counts as rain; mist and fog count as cloudy.
 func weatherCondition(code int) string {
 	switch code {
 	case 1000: // Sunny / Clear

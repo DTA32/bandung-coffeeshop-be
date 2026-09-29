@@ -15,12 +15,10 @@ type Config struct {
 	DBName     string
 	AppPort    string
 
-	// RedisHost empty disables the Redis cache; RedisPort defaults to 6379.
 	RedisHost string
 	RedisPort string
 	RedisDB   int
 
-	// WeatherAPIKey is the weatherapi.com key; empty disables weather lookups.
 	WeatherAPIKey string
 }
 
@@ -55,7 +53,6 @@ func (c *Config) DSN() string {
 	)
 }
 
-// RedisAddr is the host:port the Redis client dials.
 func (c *Config) RedisAddr() string {
 	return net.JoinHostPort(c.RedisHost, c.RedisPort)
 }

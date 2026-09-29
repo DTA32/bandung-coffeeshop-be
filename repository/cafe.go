@@ -619,8 +619,6 @@ func (r *CafeRepository) CafePriceRankByLocationID(ctx context.Context, location
 	return priceRank, nil
 }
 
-// RandomCafe picks one active cafe uniformly at random. ORDER BY random() is
-// a full scan, which is fine at this catalogue size (hundreds of rows).
 func (r *CafeRepository) RandomCafe(ctx context.Context) (id, name string, err error) {
 	err = r.db.QueryRow(ctx, `
 		SELECT l.id, l.name

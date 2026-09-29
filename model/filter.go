@@ -11,8 +11,8 @@ type FiltersResponse struct {
 }
 
 type FilterWeather struct {
-	Slug string `json:"slug"` // constants.Weather{Clear,Cloudy,Rain}
-	Name string `json:"name"` // localized
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 type FilterTag struct {

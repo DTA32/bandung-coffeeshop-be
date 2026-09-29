@@ -1,5 +1,3 @@
-// Package cache wraps the shared Redis instance used as a best-effort cache.
-// Callers treat every error as a cache miss and fall back to the source.
 package cache
 
 import (
@@ -10,11 +8,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ErrMiss is returned by Get when the key does not exist.
 var ErrMiss = errors.New("cache miss")
 
-// opTimeout bounds each Redis call so a slow or down Redis never stalls a
-// request for longer than a fallback would take.
 const opTimeout = 200 * time.Millisecond
 
 type Redis struct {

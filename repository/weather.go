@@ -15,14 +15,12 @@ var ErrWeatherDisabled = errors.New("weather provider not configured")
 
 const weatherAPIBaseURL = "https://api.weatherapi.com/v1"
 
-// CurrentWeatherRow is the provider's raw current reading.
 type CurrentWeatherRow struct {
 	ConditionCode int
 	TempC         float64
 	UpdatedAt     time.Time
 }
 
-// WeatherRepository reads current conditions from weatherapi.com.
 type WeatherRepository struct {
 	apiKey string
 	client *http.Client

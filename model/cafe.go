@@ -16,8 +16,8 @@ type CafeSearchRequest struct {
 	PriceMin    *int
 	PriceMax    *int
 	IsFeatured  *bool
-	Status      string   // location status: "active" (default) or "closed".
-	Weather     []string // constants.Weather{Clear,Cloudy,Rain}, or just constants.WeatherCurrent
+	Status      string // location status: "active" (default) or "closed".
+	Weather     []string
 	Lang        string
 	Sort        string
 	Order       string
@@ -46,9 +46,7 @@ type CafeSearchResponse struct {
 	Cafes                 []CafeDetail `json:"cafes"`
 	Page                  int          `json:"page"`
 	Size                  int          `json:"size"`
-	// Weather is the reading weather=current resolved to; null otherwise, or
-	// when no reading was available (the weather filter is then skipped).
-	Weather *Weather `json:"weather"`
+	Weather               *Weather     `json:"weather"`
 }
 
 type CafeDetailResponse struct {
