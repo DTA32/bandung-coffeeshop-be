@@ -215,7 +215,7 @@ Locale is taken from the `Accept-Language` header (affects names, descriptions, 
 | `cafes[].area` | string \| null | Area name the cafe belongs to. |
 | `cafes[].price_range` | string \| null | Pre-formatted: `"Rp. 25k - Rp. 60k"`, `"start from Rp. 25k"`, `"up to Rp. 60k"`, or null. Localized. |
 | `cafes[].distance` | int \| null | Meters from the focus point. Only populated when `query_coords` is provided; otherwise `null`. |
-| `cafes[].remark` | string \| null | Editor's note for the cafe. |
+| `cafes[].remark` | string \| null | Editor's note for the cafe. When `tags` is sent, excludes the selected tags and is `null` if none remain. |
 
 ### Errors
 

@@ -299,6 +299,14 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 
 	langP := addArg(p.Lang)
 
+	// Selected tags are excluded from the card remark; the same placeholder is
+	// reused by the tag AND-filter below.
+	var tagsP, remarkTagFilter string
+	if len(p.TagSlugs) > 0 {
+		tagsP = addArg(p.TagSlugs)
+		remarkTagFilter = fmt.Sprintf(" AND (t.slug IS NULL OR t.slug <> ALL(%s))", tagsP)
+	}
+
 	sb.WriteString(fmt.Sprintf(`SELECT
 		l.id,
 		l.name,
@@ -316,10 +324,11 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		cp.price_range_max,
 		(SELECT %s FROM cafe_tag ct
 			JOIN tag t ON t.id = ct.tag_id
-			WHERE ct.cafe_id = c.id AND ct.visible = TRUE
+			WHERE ct.cafe_id = c.id AND ct.visible = TRUE%s
 			ORDER BY ct.updated_at DESC, t.id LIMIT 1) AS remark,`,
 		localized(langP, "l.description_indo", "l.description"),
-		localized(langP, "t.name_indo", "t.name")))
+		localized(langP, "t.name_indo", "t.name"),
+		remarkTagFilter))
 
 	sb.WriteString(fmt.Sprintf(`
 		CASE WHEN %s IS NULL THEN NULL
@@ -383,7 +392,6 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	// Tags (AND): cafe must carry every selected slug. Expressed as a subquery
 	// rather than joins so it can't fan out rows and break COUNT(*) OVER().
 	if len(p.TagSlugs) > 0 {
-		tagsP := addArg(p.TagSlugs)
 		nP := addArg(len(p.TagSlugs))
 		sb.WriteString(fmt.Sprintf(`
 			AND c.id IN (
