@@ -37,8 +37,75 @@ erDiagram
         time close_hour
         boolean is_featured
         text[] weather "subset of clear|cloudy|rain"
+        text phone
+        text menu
         timestamp created_at
         timestamp updated_at
+    }
+
+    CafeFeed {
+        int id PK
+        int cafe_id FK
+        text content
+        text[] images
+        text author "default Admin"
+        text link
+        timestamp published_at
+        timestamp expires_at
+        boolean visible
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    SourceTarget {
+        int cafe_id PK,FK
+        enum source PK
+        %%"gmaps", "instagram", "linktree"%%
+        text external_id
+        boolean enabled
+        timestamp last_success_at
+        text last_error
+        int consecutive_failures
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    SourceSnapshot {
+        bigint id PK
+        int cafe_id FK
+        enum source
+        timestamp fetched_at
+        jsonb raw
+        jsonb parsed
+        text hash
+    }
+
+    ChangeProposal {
+        bigint id PK
+        int cafe_id FK
+        enum source
+        text field
+        text item_key "'' or ig shortcode"
+        jsonb old_value
+        jsonb new_value
+        text evidence_url
+        bigint snapshot_id FK
+        enum status
+        %%"pending", "approved", "rejected", "superseded"%%
+        jsonb resolved_value
+        timestamp created_at
+        timestamp resolved_at
+    }
+
+    ScrapeRun {
+        bigint id PK
+        enum source
+        timestamp started_at
+        timestamp finished_at
+        int ok
+        int failed
+        int proposals
+        text error
     }
 
     CafeReview {
@@ -132,3 +199,8 @@ erDiagram
     Tag ||--o{ CafeTag : "has"
     RatingTypeLabel ||--o{ RatingCategory : "labels"
     RatingTypeLabel ||--o{ CafeRating : "types"
+    Cafe ||--o{ CafeFeed : "has"
+    Cafe ||--o{ SourceTarget : "scraped by"
+    Cafe ||--o{ SourceSnapshot : "has"
+    Cafe ||--o{ ChangeProposal : "has"
+    SourceSnapshot |o--o{ ChangeProposal : "evidence"
