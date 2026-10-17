@@ -52,3 +52,17 @@ const (
 )
 
 var WeatherValues = []string{WeatherClear, WeatherCloudy, WeatherRain}
+
+// Auth (BCF-25)
+const (
+	AuthProviderGoogle = "google"
+
+	UserStatusActive  = "active"
+	UserStatusDeleted = "deleted"
+
+	SessionCookie = "bdg_session"
+	OAuthCookie   = "bdg_oauth"
+
+	AuthErrorDeactivated = "deactivated"
+	AuthErrorFailed      = "failed"
+)
