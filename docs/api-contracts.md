@@ -297,6 +297,7 @@ Returns full detail for a single cafe by its location slug.
       { "url": "https://example.com/photo.jpg", "description": "Interior" }
     ],
     "instagram": "_accio.coffee",
+    "menu": "https://example.com/menu.pdf",
     "open_hour": "08:00",
     "close_hour": "22:00",
     "gmaps_id": "ChIJrTLr-GyuEmsRBfy61i59si0",
@@ -330,6 +331,7 @@ Returns full detail for a single cafe by its location slug.
 | `status` | string | Location status: `active`, `closed`, or `deleted`. |
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
+| `menu` | string \| null | Either an `http(s)` URL, or a `#image-N` gallery hash (`N` is 1-based, so `#image-1` is the first entry of `images`) meaning "open gallery image N". Passed through untouched; `null` if not set. |
 | `open_hour` / `close_hour` | string \| null | 24-hour format `"HH:MM"`. `null` if not set. A cafe open 24 hours is represented as `open_hour = "00:00"` and `close_hour = "23:59"`. |
 | `gmaps_id` | string \| null | The cafe's own Google Maps place ID. `null` if not set. |
 | `locations` | array | Ancestor chain of the area/neighbourhood the cafe sits in, outermost first (district, then area). Empty array if coordinates are unset or no matching area is found. |
@@ -440,7 +442,59 @@ GET /v1/cafe/accio-coffee/review
 
 ---
 
-## 5. `GET /v1/location`
+## 5. `GET /v1/cafe/:id/feed`
+
+Returns the cafe's "latest updates" (entries created in mission control, usually from an Instagram post). Content is single-language, so `Accept-Language` is ignored. Only entries that are `visible` and not expired (`expires_at` is null or in the future) are returned, newest first (`published_at` desc, then `id` desc), capped at 10. Not cached.
+
+### Path params
+| Name | Type | Notes |
+|------|------|-------|
+| `id` | string | Location slug (e.g. `accio-coffee`). Case-sensitive. |
+
+### Success `200`
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 12,
+      "content": "New seasonal menu is out!",
+      "images": ["https://image.bdgcafe.com/feed/12-1.jpg"],
+      "author": "Admin",
+      "link": "https://www.instagram.com/p/XXXXXXXX/",
+      "published_at": "2026-10-12T09:30:00Z"
+    }
+  ]
+}
+```
+
+A known cafe with no current entries returns `"data": []`.
+
+#### Field semantics
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | number | Feed entry ID. |
+| `content` | string | Entry text. |
+| `images` | string[] | Full image URLs. Empty array if none (never `null`). |
+| `author` | string | Author label (defaults to `Admin`). |
+| `link` | string \| null | Source link (e.g. the Instagram permalink). |
+| `published_at` | string | UTC timestamp, `"YYYY-MM-DDTHH:MM:SSZ"` (mission control stores feed times in UTC). |
+
+### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 404 | `cafe not found` | No active cafe with the given `id` exists |
+| 500 | `failed to fetch feed` | Unexpected server / DB error |
+
+### Example
+```
+GET /v1/cafe/accio-coffee/feed
+```
+
+---
+
+## 6. `GET /v1/location`
 
 Lists all districts, each with its flat descendants (areas + POIs) and images.
 This is the no-id fallback for the explore landing page.
@@ -487,7 +541,7 @@ GET /v1/location
 
 ---
 
-## 6. `GET /v1/location/:id`
+## 7. `GET /v1/location/:id`
 
 Returns full detail for a single non-cafe location (area, POI, or district).
 Cafes are rejected — use `/v1/cafe/:id` instead.
@@ -547,7 +601,7 @@ GET /v1/location/dago
 
 ---
 
-## 7. `GET /v1/filters`
+## 8. `GET /v1/filters`
 
 Returns the option lists that power the explore filter modal and SRP: selectable
 tags, rating categories (grouped by type, each with its buckets), price
@@ -622,7 +676,7 @@ GET /v1/filters?enrich_content=true
 
 ---
 
-## 8. `GET /v1/cafe/random`
+## 9. `GET /v1/cafe/random`
 
 Returns one active cafe picked uniformly at random — powers the homepage
 "Surprise me" button. Repeats are possible across calls. Responds with

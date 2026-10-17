@@ -494,6 +494,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		Status:      row.Status,
 		Images:      imgs,
 		Instagram:   row.Instagram,
+		Menu:        row.Menu,
 		OpenHour:    row.OpenHour,
 		CloseHour:   row.CloseHour,
 		GmapsID:     row.GmapsID,
@@ -510,6 +511,33 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 			Rank:           rank,
 		},
 	}, nil
+}
+
+func (s *CafeService) GetFeedByID(ctx context.Context, locationID string) ([]model.CafeFeedItem, error) {
+	exists, err := s.repo.CafeExistsByLocationID(ctx, locationID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, repository.ErrCafeNotFound
+	}
+
+	rows, err := s.repo.CafeFeedByLocationID(ctx, locationID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.CafeFeedItem, 0, len(rows))
+	for _, r := range rows {
+		imgs := r.Images
+		if imgs == nil {
+			imgs = []string{}
+		}
+		items = append(items, model.CafeFeedItem{
+			ID: r.ID, Content: r.Content, Images: imgs,
+			Author: r.Author, Link: r.Link, PublishedAt: r.PublishedAt,
+		})
+	}
+	return items, nil
 }
 
 func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string) (*model.CafeReviewResponse, error) {

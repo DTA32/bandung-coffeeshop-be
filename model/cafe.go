@@ -56,6 +56,7 @@ type CafeDetailResponse struct {
 	Status      string          `json:"status"`
 	Images      []LocationImage `json:"images"`
 	Instagram   *string         `json:"instagram"`
+	Menu        *string         `json:"menu"`
 	OpenHour    *string         `json:"open_hour"`
 	CloseHour   *string         `json:"close_hour"`
 	GmapsID     *string         `json:"gmaps_id"`
@@ -89,6 +90,15 @@ type CafeReviewResponse struct {
 	VisitedAt    *string         `json:"visited_at"`
 	UpdatedAt    string          `json:"updated_at"`
 	Ratings      RatingsResponse `json:"ratings"`
+}
+
+type CafeFeedItem struct {
+	ID          int      `json:"id"`
+	Content     string   `json:"content"`
+	Images      []string `json:"images"`
+	Author      string   `json:"author"`
+	Link        *string  `json:"link"`
+	PublishedAt string   `json:"published_at"`
 }
 
 type CafeTag struct {
