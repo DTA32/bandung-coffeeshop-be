@@ -21,7 +21,15 @@ All `/v1` endpoints return JSON in the standard envelope below.
 }
 ```
 
-HTTP status codes used: `200`, `400` (validation), `404` (resource not found), `500` (server error).
+HTTP status codes used: `200`, `204` (no content), `302` (auth redirects), `400` (validation), `401` (not signed in), `403` (disallowed origin), `404` (resource not found), `500` (server error), `503` (auth not configured / unavailable).
+
+## Credentials & CORS
+
+CORS allows only the origins in `ALLOWED_ORIGINS` and allows credentials, so
+browser clients must send `credentials: "include"` for the session cookie to
+travel. `POST` / `PUT` / `DELETE` requests carrying an `Origin` header that is
+not allowlisted are rejected with `403`. See [Auth](#9-auth) for the session
+cookie.
 
 ## Localization
 
@@ -698,3 +706,100 @@ Returns one active cafe picked uniformly at random — powers the homepage
 |--------|---------|------|
 | 404 | `cafe not found` | No active cafe exists |
 | 500 | `failed to pick a cafe` | Unexpected server / DB error |
+
+---
+
+## 9. Auth
+
+Google sign-in (BCF-25). Sessions are opaque random tokens in an httpOnly
+cookie; the server stores only their SHA-256 in Redis. Accounts live in the
+`users` table, keyed by `(provider, provider_sub)`.
+
+In production the API sits behind the `/api` prefix (`https://bdgcafe.com/api/v1/...`),
+so all cookies are first-party.
+
+### Cookies
+
+| Cookie | Set by | Value | Attributes |
+|--------|--------|-------|------------|
+| `bdg_oauth` | `GET /v1/auth/:provider` | base64url JSON `{s: state, v: PKCE verifier, r: redirect path}` | `HttpOnly; SameSite=Lax; Path=/; Max-Age=600`; `Secure` unless `COOKIE_SECURE=false`. Cleared by the callback. |
+| `bdg_session` | `GET /v1/auth/:provider/callback` on success | opaque token (43 chars, base64url of 32 random bytes) | `HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000` (30 days); `Secure` unless `COOKIE_SECURE=false`. Cleared by logout. |
+
+Sessions last a fixed 30 days from sign-in; activity does not extend them.
+The session is attached to every `/v1` request that carries `bdg_session`;
+an unknown/expired token, a deactivated user, or a Redis outage all degrade
+to anonymous (no error), and a deactivated user's session is revoked.
+
+### Availability
+
+Auth needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL` and
+Redis. When any is missing (or Redis is unreachable), `GET /v1/auth/google`
+and the callback answer `503` `auth unavailable`; `GET /v1/me` answers `401`;
+the rest of the API is unaffected.
+
+### 9.1 `GET /v1/auth/:provider`
+
+Starts sign-in. Only `provider=google` exists; anything else is `404`
+`provider not found`. Navigate the browser here (full page navigation, not
+`fetch`).
+
+| Query param | Notes |
+|-------------|-------|
+| `redirect` | Optional path to land on afterwards, e.g. `/en/cafe/accio-coffee?tab=review`. Must start with a single `/` (no `//`, no backslashes, no control characters); otherwise `/` is used. |
+
+**`302`** to Google's consent screen (scopes `openid email profile`, PKCE S256)
+and sets `bdg_oauth`. **`503`** `auth unavailable` when auth is not configured
+or Redis is down.
+
+### 9.2 `GET /v1/auth/:provider/callback`
+
+Google's redirect URI (`${PUBLIC_BASE_URL}/api/v1/auth/google/callback`, or
+`AUTH_CALLBACK_URL`). Not called by the FE directly. Always clears `bdg_oauth`
+and ends in a `302` to `${PUBLIC_BASE_URL}${redirect}`:
+
+| Outcome | Redirect | Session |
+|---------|----------|---------|
+| Success | `${PUBLIC_BASE_URL}${redirect}` | `bdg_session` set |
+| Account deactivated (`users.status = 'deleted'`) | `...${redirect}?auth_error=deactivated` | none |
+| Anything else (user cancelled, state mismatch / missing `bdg_oauth`, expired cookie, token exchange or profile failure, DB/Redis error) | `...${redirect}?auth_error=failed` | none |
+
+`auth_error` is appended with `&` when `redirect` already has a query, and
+before any `#fragment`. **`503`** `auth unavailable` (JSON) when Google
+credentials are not configured.
+
+#### `auth_error` values
+| Value | Meaning |
+|-------|---------|
+| `deactivated` | The account exists but has been deactivated; sign-in refused |
+| `failed` | Sign-in did not complete for any other reason; safe to retry |
+
+### 9.3 `GET /v1/me`
+
+The signed-in user. Responds with `Cache-Control: no-store`.
+
+#### Success `200`
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "Radit",
+    "email": "radit@example.com",
+    "avatar_url": "https://lh3.googleusercontent.com/a/..."
+  }
+}
+```
+
+`avatar_url` is `null` when the provider has no picture. `name` falls back to
+the email when the provider returns no name.
+
+#### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 401 | `unauthorized` | No session cookie, unknown/expired session, deactivated user, or Redis unavailable |
+
+### 9.4 `POST /v1/auth/logout`
+
+Revokes the current session (if any) and expires `bdg_session`. **`204`** with
+no body, even when there was no session or Redis is down. Subject to the
+`Origin` check (`403` `origin not allowed`).

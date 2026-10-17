@@ -78,11 +78,14 @@ Copy `.env.example` → `.env` and fill in credentials before running.
 Handler → Service → Repository
 ```
 
-There are four domains — `location`, `cafe`, `filter`, and `quicksearch` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search.
+There are five domains — `location`, `cafe`, `filter`, `quicksearch`, and `auth` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search. `auth` spans `repository/user.go` (Postgres), `repository/session.go` (Redis) and `repository/google.go` (OAuth + userinfo) behind `service/auth.go` / `handler/auth.go`.
 
-- `cmd/cmd.go` — entrypoint: loads config, configures CORS (all origins), creates pgxpool, wires all layers, registers routes, starts Gin router
-- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_HOST/PORT/DB`, and `WEATHERAPI_KEY`; exposes `DSN()` and `RedisAddr()`
-- `cache/redis.go` — optional best-effort Redis cache (disabled when `REDIS_HOST` is empty); every error is treated as a miss
+- `cmd/cmd.go` — entrypoint: loads config, configures CORS (`ALLOWED_ORIGINS`, credentials allowed), creates pgxpool, wires all layers, registers routes and the `/v1` middleware, starts Gin router
+- `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_HOST/PORT/DB`, `WEATHERAPI_KEY`, and auth: `GOOGLE_CLIENT_ID/SECRET`, `PUBLIC_BASE_URL`, `AUTH_CALLBACK_URL` (default `${PUBLIC_BASE_URL}/api/v1/auth/google/callback`), `ALLOWED_ORIGINS` (comma-separated; default `PUBLIC_BASE_URL`, else `http://localhost:3000`), `COOKIE_SECURE` (default true); exposes `DSN()`, `RedisAddr()`, `GoogleAuthEnabled()`
+- `cache/redis.go` — optional Redis client (disabled when `REDIS_HOST` is empty). As a cache every error is treated as a miss; it also backs sessions (`Pipelined` for the multi-key writes)
+- `middleware/auth.go` — `LoadUser` on the whole `/v1` group: reads the `bdg_session` cookie (no cookie → no Redis/DB hit), resolves the user, drops sessions of deactivated users, degrades to anonymous on any error. `RequireUser` → 401. `CurrentUser(c)` reads the user from the Gin context — use it in handlers that need the signed-in user.
+- `middleware/origin.go` — `RequireAllowedOrigin`: 403 for POST/PUT/DELETE whose `Origin` is present and not in `ALLOWED_ORIGINS`
+- `service/auth.go` — Google sign-in (state + PKCE round-tripped in the `bdg_oauth` cookie), user upsert, session issue/lookup/revoke. Sessions: `session:<sha256(token)>` → user id and `user_sessions:<id>` set, both a fixed 30-day TTL; only the hash is stored. Auth routes answer 503 when Google creds or Redis are missing
 - `service/weather.go` — Bandung's current weather from weatherapi.com, cached 30 min in Redis (plus an in-process copy and a 24 h last-known fallback); folds provider condition codes into `clear` / `cloudy` / `rain`
 - `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
 - `service/` — input validation and business rules; maps domain errors to handler-visible errors. Defines consumer interfaces over its repository.
@@ -125,3 +128,7 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/cafe/:id/review` — cafe review and ratings
 - `GET /v1/cafe/:id/feed` — latest updates feed (up to 10 visible, unexpired `cafe_feed` entries)
 - `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories, price tiers, weather)
+- `GET /v1/auth/:provider?redirect=<path>` — start sign-in (`google` only); 302 to Google
+- `GET /v1/auth/:provider/callback` — OAuth callback; sets `bdg_session`, 302 to `PUBLIC_BASE_URL + redirect` (`?auth_error=deactivated|failed` on failure)
+- `GET /v1/me` — signed-in user (401 when anonymous)
+- `POST /v1/auth/logout` — revoke session, 204
