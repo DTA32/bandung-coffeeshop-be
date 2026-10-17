@@ -58,6 +58,9 @@ psql -U postgres -d bandung_coffeeshop -f migrations/005_cafe_weather.sql
 psql -U postgres -d bandung_coffeeshop -f migrations/006_cafe_contact.sql
 psql -U postgres -d bandung_coffeeshop -f migrations/007_collector.sql
 psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
+
+# 9. users table (Google sign-in accounts; sessions live in Redis)
+psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
 ```
 
 This repo owns the schema for every BDGCafe service. `bandung-coffeeshop-admin`
@@ -104,7 +107,7 @@ Currently, this is still in feat/test branch, not merged to main yet.
 
 PostgreSQL with two required extensions: `pg_trgm` (trigram similarity for fuzzy name search) and `postgis` (geographic coordinates). Schema in `migrations/001_init.sql`; ERD in `docs/erd.mermaid`.
 
-Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`. Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
+Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`, `users` (accounts keyed by `(provider, provider_sub)`; sessions are in Redis, not the DB). Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
 
 Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern. Area/district containment uses PostGIS polygons (`ST_PointOnSurface` / `ST_Contains`).
 
