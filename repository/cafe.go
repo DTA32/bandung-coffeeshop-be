@@ -103,7 +103,8 @@ type RatingFilterParam struct {
 type CafeDetailRow struct {
 	ID, Name, Status, Description  string
 	GmapsID                        *string
-	Instagram, OpenHour, CloseHour *string
+	Instagram, Menu                *string
+	OpenHour, CloseHour            *string
 	PriceRangeMin, PriceRangeMax   *int
 	CoffeePriceMin, CoffeePriceMax *int
 	SnackPriceMin, SnackPriceMax   *int
@@ -125,6 +126,15 @@ type ReviewRow struct {
 	Content                *string
 	VisitedAt              *string
 	UpdatedAt              string
+}
+
+type CafeFeedRow struct {
+	ID          int
+	Content     string
+	Images      []string
+	Author      string
+	Link        *string
+	PublishedAt string
 }
 
 type CafeTagRow struct {
@@ -531,7 +541,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 	var row CafeDetailRow
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		SELECT l.id, l.name, %s, l.status, l.gmaps_id,`, localized("$2", "l.description_indo", "l.description"))+`
-		       c.instagram,
+		       c.instagram, c.menu,
 		       TO_CHAR(c.open_hour,  'HH24:MI'),
 		       TO_CHAR(c.close_hour, 'HH24:MI'),
 		       cp.price_range_min, cp.price_range_max,
@@ -559,7 +569,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		WHERE l.id = $1 AND l.type = 'cafe'
 	`, locationID, lang).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
-		&row.Instagram, &row.OpenHour, &row.CloseHour,
+		&row.Instagram, &row.Menu, &row.OpenHour, &row.CloseHour,
 		&row.PriceRangeMin, &row.PriceRangeMax,
 		&row.CoffeePriceMin, &row.CoffeePriceMax,
 		&row.SnackPriceMin, &row.SnackPriceMax,
@@ -676,6 +686,37 @@ func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID,
 		return nil, err
 	}
 	return &row, nil
+}
+
+// feedLimit caps how many "latest updates" a cafe detail page shows.
+const feedLimit = 10
+
+func (r *CafeRepository) CafeFeedByLocationID(ctx context.Context, locationID string) ([]CafeFeedRow, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT f.id, f.content, f.images, f.author, f.link,
+		       TO_CHAR(f.published_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM cafe_feed f
+		JOIN cafe c ON c.id = f.cafe_id
+		WHERE c.location_id = $1
+		  AND f.visible
+		  AND (f.expires_at IS NULL OR f.expires_at > now())
+		ORDER BY f.published_at DESC, f.id DESC
+		LIMIT $2
+	`, locationID, feedLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CafeFeedRow
+	for rows.Next() {
+		var row CafeFeedRow
+		if err := rows.Scan(&row.ID, &row.Content, &row.Images, &row.Author, &row.Link, &row.PublishedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
 }
 
 func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, lang string) ([]CafeTagRow, error) {
