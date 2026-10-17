@@ -52,7 +52,18 @@ python3 migrations/004_area_district_seeder.py
 
 # 5. cafe.weather column (clear / cloudy / rain) for "Match the weather"
 psql -U postgres -d bandung_coffeeshop -f migrations/005_cafe_weather.sql
+
+# 6–8. Freshness pipeline (BCF-11 / BCF-12): cafe.phone + cafe.menu, collector
+#      tables (source_target, source_snapshot, change_proposal, scrape_run) and cafe_feed
+psql -U postgres -d bandung_coffeeshop -f migrations/006_cafe_contact.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/007_collector.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
 ```
+
+This repo owns the schema for every BDGCafe service. `bandung-coffeeshop-admin`
+(mission control, `mission-control.bdgcafe.com`) and `bandung-coffeeshop-scraper`
+(daily Google Maps / Instagram / Linktree CronJobs) connect to the same database and
+only consume it. See `docs/freshness-pipeline-plan.md`.
 
 Copy `.env.example` → `.env` and fill in credentials before running.
 
@@ -93,7 +104,7 @@ Currently, this is still in feat/test branch, not merged to main yet.
 
 PostgreSQL with two required extensions: `pg_trgm` (trigram similarity for fuzzy name search) and `postgis` (geographic coordinates). Schema in `migrations/001_init.sql`; ERD in `docs/erd.mermaid`.
 
-Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`.
+Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`. Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
 
 Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern. Area/district containment uses PostGIS polygons (`ST_PointOnSurface` / `ST_Contains`).
 
