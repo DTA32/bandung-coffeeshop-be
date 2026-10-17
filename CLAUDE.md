@@ -120,4 +120,5 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/cafe/random` — one random active cafe ("Surprise me")
 - `GET /v1/cafe/:id` — full cafe detail
 - `GET /v1/cafe/:id/review` — cafe review and ratings
+- `GET /v1/cafe/:id/feed` — latest updates feed (up to 10 visible, unexpired `cafe_feed` entries)
 - `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories, price tiers, weather)

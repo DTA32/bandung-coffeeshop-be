@@ -86,6 +86,7 @@ func main() {
 		v1.GET("/cafe/random", cafeHdlr.Random)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
+		v1.GET("/cafe/:id/feed", cafeHdlr.GetFeed)
 		v1.GET("/filters", filterHdlr.Get)
 	}
 
