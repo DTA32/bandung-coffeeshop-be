@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -20,6 +21,13 @@ type Config struct {
 	RedisDB   int
 
 	WeatherAPIKey string
+
+	GoogleClientID     string
+	GoogleClientSecret string
+	PublicBaseURL      string
+	AuthCallbackURL    string
+	AllowedOrigins     []string
+	CookieSecure       bool
 }
 
 func Load() *Config {
@@ -32,6 +40,22 @@ func Load() *Config {
 		redisPort = "6379"
 	}
 	redisDB, _ := strconv.Atoi(os.Getenv("REDIS_DB"))
+	publicBaseURL := strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/")
+	callbackURL := os.Getenv("AUTH_CALLBACK_URL")
+	if callbackURL == "" && publicBaseURL != "" {
+		callbackURL = publicBaseURL + "/api/v1/auth/google/callback"
+	}
+	allowedOrigins := splitCSV(os.Getenv("ALLOWED_ORIGINS"))
+	if len(allowedOrigins) == 0 && publicBaseURL != "" {
+		allowedOrigins = []string{publicBaseURL}
+	}
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{"http://localhost:3000"}
+	}
+	cookieSecure := true
+	if v, err := strconv.ParseBool(os.Getenv("COOKIE_SECURE")); err == nil {
+		cookieSecure = v
+	}
 	return &Config{
 		DBHost:        os.Getenv("DB_HOST"),
 		DBPort:        os.Getenv("DB_PORT"),
@@ -43,6 +67,13 @@ func Load() *Config {
 		RedisPort:     redisPort,
 		RedisDB:       redisDB,
 		WeatherAPIKey: os.Getenv("WEATHERAPI_KEY"),
+
+		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		PublicBaseURL:      publicBaseURL,
+		AuthCallbackURL:    callbackURL,
+		AllowedOrigins:     allowedOrigins,
+		CookieSecure:       cookieSecure,
 	}
 }
 
@@ -55,4 +86,18 @@ func (c *Config) DSN() string {
 
 func (c *Config) RedisAddr() string {
 	return net.JoinHostPort(c.RedisHost, c.RedisPort)
+}
+
+func (c *Config) GoogleAuthEnabled() bool {
+	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.PublicBaseURL != ""
+}
+
+func splitCSV(raw string) []string {
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		if s := strings.TrimRight(strings.TrimSpace(p), "/"); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
