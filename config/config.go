@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/dta32/bandung-coffeeshop-be/helper"
 )
 
 type Config struct {
@@ -45,7 +47,12 @@ func Load() *Config {
 	if callbackURL == "" && publicBaseURL != "" {
 		callbackURL = publicBaseURL + "/api/v1/auth/google/callback"
 	}
-	allowedOrigins := splitCSV(os.Getenv("ALLOWED_ORIGINS"))
+	var allowedOrigins []string
+	for _, o := range helper.SplitCSV(os.Getenv("ALLOWED_ORIGINS")) {
+		if o = strings.TrimRight(o, "/"); o != "" {
+			allowedOrigins = append(allowedOrigins, o)
+		}
+	}
 	if len(allowedOrigins) == 0 && publicBaseURL != "" {
 		allowedOrigins = []string{publicBaseURL}
 	}
@@ -90,14 +97,4 @@ func (c *Config) RedisAddr() string {
 
 func (c *Config) GoogleAuthEnabled() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.PublicBaseURL != ""
-}
-
-func splitCSV(raw string) []string {
-	var out []string
-	for _, p := range strings.Split(raw, ",") {
-		if s := strings.TrimRight(strings.TrimSpace(p), "/"); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
 }
