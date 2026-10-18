@@ -190,6 +190,19 @@ erDiagram
         timestamp updated_at
     }
 
+    Users {
+        int id PK
+        text provider "unique (provider, provider_sub)"
+        text provider_sub
+        text email
+        text name
+        text avatar_url
+        enum status
+        %%"active", "deleted"%%
+        timestamp created_at
+        timestamp updated_at
+    }
+
     Location ||--o| Cafe : "is"
     Location ||--o{ LocationImage : "has"
     Cafe ||--o{ CafeReview : "has"
