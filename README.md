@@ -34,8 +34,15 @@ psql -U postgres -d bandung_coffeeshop -f migrations/003_data_seeder.sql
 # 4. Seed area/district polygons (OpenStreetMap / Nominatim)
 python3 migrations/004_area_district_seeder.py
 
-# 5. cafe.weather column; 9. users table (see CLAUDE.md for the full list)
+# 5. cafe.weather column
 psql -U postgres -d bandung_coffeeshop -f migrations/005_cafe_weather.sql
+
+# 6–8. Freshness pipeline: cafe phone + menu, collector tables, cafe feed
+psql -U postgres -d bandung_coffeeshop -f migrations/006_cafe_contact.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/007_collector.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
+
+# 9. users table (Google sign-in accounts; sessions live in Redis)
 psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
 
 # Run
