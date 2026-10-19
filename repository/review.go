@@ -116,7 +116,7 @@ func (r *ReviewRepository) VisibleReviews(ctx context.Context, cafeID int, curso
 			pinned = 1
 		}
 		args = append(args, pinned, cursor.UpdatedAt, cursor.ID)
-		keyset = `AND (rv.is_pinned::int, rv.updated_at, rv.id) < ($3, $4::timestamp, $5)`
+		keyset = `AND (rv.is_pinned::int, rv.updated_at, rv.id) < ($3, $4::text::timestamp, $5)`
 	}
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT %s
@@ -254,7 +254,7 @@ func (r *ReviewRepository) Create(ctx context.Context, w ReviewWrite) error {
 		err = tx.QueryRow(ctx, `
 			INSERT INTO cafe_review (cafe_id, user_id, reviewer_name, status,
 			                         overall_score, wfc_score, visited_at, content)
-			VALUES ($1, $2, $3, 'pending', $4, $5, $6::date, $7)
+			VALUES ($1, $2, $3, 'pending', $4, $5, $6::text::date, $7)
 			RETURNING id
 		`, w.CafeID, w.UserID, w.ReviewerName, w.OverallScore, w.WFCScore, w.VisitedAt, w.Content).Scan(&id)
 		if err != nil {
@@ -277,7 +277,7 @@ func (r *ReviewRepository) Update(ctx context.Context, w ReviewWrite) error {
 		err := tx.QueryRow(ctx, `
 			UPDATE cafe_review
 			SET reviewer_name = $3, overall_score = $4, wfc_score = $5,
-			    visited_at = $6::date, content = $7,
+			    visited_at = $6::text::date, content = $7,
 			    status = 'pending', updated_at = now()
 			WHERE cafe_id = $1 AND user_id = $2 AND status <> 'deleted'
 			RETURNING id
