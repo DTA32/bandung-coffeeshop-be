@@ -67,6 +67,10 @@ func main() {
 	cafeSvc := service.NewCafeService(cafeRepo, weatherSvc)
 	cafeHdlr := handler.NewCafeHandler(cafeSvc)
 
+	reviewRepo := repository.NewReviewRepository(pool)
+	reviewSvc := service.NewReviewService(reviewRepo)
+	reviewHdlr := handler.NewReviewHandler(reviewSvc)
+
 	filterRepo := repository.NewFilterRepository(pool)
 	filterSvc := service.NewFilterService(filterRepo)
 	filterHdlr := handler.NewFilterHandler(filterSvc)
@@ -110,6 +114,7 @@ func main() {
 		v1.GET("/cafe/random", cafeHdlr.Random)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
+		v1.GET("/cafe/:id/reviews", reviewHdlr.List)
 		v1.GET("/cafe/:id/feed", cafeHdlr.GetFeed)
 		v1.GET("/filters", filterHdlr.Get)
 	}
