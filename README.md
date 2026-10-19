@@ -45,6 +45,9 @@ psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
 # 9. users table (Google sign-in accounts; sessions live in Redis)
 psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
 
+# 10. One-off: align cafe.updated_at with each cafe's latest review (BCF-35)
+psql -U postgres -d bandung_coffeeshop -f migrations/010_cafe_updated_at_backfill.sql
+
 # Run
 go run ./cmd
 ```
