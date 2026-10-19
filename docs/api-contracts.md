@@ -21,7 +21,7 @@ All `/v1` endpoints return JSON in the standard envelope below.
 }
 ```
 
-HTTP status codes used: `200`, `204` (no content), `302` (auth redirects), `400` (validation), `401` (not signed in), `403` (disallowed origin), `404` (resource not found), `500` (server error), `503` (auth not configured / unavailable).
+HTTP status codes used: `200`, `201` (created), `204` (no content), `302` (auth redirects), `400` (validation), `401` (not signed in), `403` (disallowed origin), `404` (resource not found), `409` (conflict), `500` (server error), `503` (auth not configured / unavailable).
 
 ## Credentials & CORS
 
@@ -72,6 +72,14 @@ unrecognised the API falls back to Indonesian (`id`). The header applies to ever
 - otherwise: featured first, then cafes with at least one image, then `updated_at` ↓, then `distance` ↑
 
 Ties are broken by `id` ↑.
+
+`rating` sorts by the cafe's average `overall_score` over its [visible reviews](#visible-reviews); cafes without one sort last.
+
+### Visible reviews
+A review is publicly visible when its `status` is `approved` and it is either a
+partnership review (no user account) or written by a user whose account is
+still active. Every public review read and aggregate (review list, `/review`
+aggregates, `ratings` search filter, `sort=rating`) counts only visible reviews.
 
 ### Order (`order`)
 `asc`, `desc`
@@ -148,7 +156,7 @@ Search and discover cafes. Supports three search modes derived from inputs:
 | `query_type` | enum (location type) | conditional | — | Type of `query_id`. Must be paired with `query_id`. |
 | `query_coords` | string `"lat,lng"` | no | — | Free coordinates, e.g. `-6.9039,107.6186`. Cannot be combined with `query_id`. Lat ∈ [-90, 90], Lng ∈ [-180, 180]. |
 | `radius_max` | int (meters) | no | `3000` (coords / `cafe` focus), `2000` (`poi` focus) | Positive integer. Only meaningful in radius mode. |
-| `ratings` | int CSV | no | — | Comma-separated rating-bucket ids (one per category type). Two buckets of the same category type are rejected. |
+| `ratings` | int CSV | no | — | Comma-separated rating-bucket ids (one per category type), AND-combined. A cafe matches a bucket when its average score in that category over its [visible reviews](#visible-reviews) (rounded to 2 decimals) lies within the bucket bounds. Two buckets of the same category type are rejected. |
 | `tags` | string CSV | no | — | Comma-separated tag slugs, AND-combined. Unknown slugs are silently ignored. |
 | `open_hour` | string | no | — | `now` (current time in WIB) or a `"HH:MM"` time. Filters to cafes open at that time. |
 | `price_min` | int | no | — | `0`–`999999`. |
@@ -300,6 +308,7 @@ Returns full detail for a single cafe by its location slug.
     "id": "accio-coffee",
     "name": "Accio Coffee",
     "description": "Jl. Batik Kumeli No.38, Sukaluyu, Bandung",
+    "about": "One of the coffee shops that feels like a second home...",
     "status": "active",
     "images": [
       { "url": "https://example.com/photo.jpg", "description": "Interior" }
@@ -337,6 +346,7 @@ Returns full detail for a single cafe by its location slug.
 |-------|------|-------|
 | `id` | string | Location slug, same as the `:id` path param. |
 | `description` | string \| null | Address / description text. `null` if not set. |
+| `about` | string \| null | Editorial "about" blurb for the cafe (localized; falls back to English). `null` when empty. |
 | `status` | string | Location status: `active`, `closed`, or `deleted`. |
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
@@ -362,7 +372,10 @@ GET /v1/cafe/accio-coffee
 
 ## 4. `GET /v1/cafe/:id/review`
 
-Returns the review for a single cafe. If the cafe exists but has no review yet, a zeroed response is returned (not an error).
+Aggregates over the cafe's [visible reviews](#visible-reviews), plus the cafe's
+tags. A cafe with no visible review returns zero counts, `null` scores and
+empty `ratings` (not an error). The individual reviews are served by
+[`GET /v1/cafe/:id/reviews`](#101-get-v1cafeidreviews).
 
 ### Path params
 | Name | Type | Notes |
@@ -371,28 +384,26 @@ Returns the review for a single cafe. If the cafe exists but has no review yet, 
 
 ### Success `200`
 
-When a review exists:
 ```json
 {
   "success": true,
   "data": {
-    "is_subjective": true,
-    "overall_score": 4.5,
+    "overall_score": 4.25,
+    "review_count": 3,
+    "overall_review_count": 2,
     "wfc_score": 4.2,
+    "wfc_review_count": 1,
     "tags": [
       { "name": "WFC Friendly", "slug": "wfc-friendly" },
       { "name": "Reading", "slug": "reading" }
     ],
-    "content": "One of the coffee shops that feels like a second home...",
-    "visited_at": "2024-11-12",
-    "updated_at": "2026-05-03 09:55:59.246561",
     "ratings": {
       "vibe": {
         "display_name": "Vibe",
         "range": [
-          { "name": "Hangout",     "slug": null,            "description": "More lively and suitable for hanging out", "lower_bound": 0,    "upper_bound": 1.67 },
-          { "name": "All-rounder", "slug": null,            "description": "Good for all occasions",                   "lower_bound": 1.68, "upper_bound": 3.33 },
-          { "name": "Comfy",       "slug": "comfortable-vibe", "description": "Comfortable and cozy environment",       "lower_bound": 3.34, "upper_bound": 5 }
+          { "name": "Hangout",     "slug": null,               "description": "More lively and suitable for hanging out", "lower_bound": 0,    "upper_bound": 1.67 },
+          { "name": "All-rounder", "slug": null,               "description": "Good for all occasions",                   "lower_bound": 1.68, "upper_bound": 3.33 },
+          { "name": "Comfy",       "slug": "comfortable-vibe", "description": "Comfortable and cozy environment",         "lower_bound": 3.34, "upper_bound": 5 }
         ],
         "score": 3.8,
         "description": "Comfortable, perfect for working and small chit-chats"
@@ -402,18 +413,17 @@ When a review exists:
 }
 ```
 
-When no review has been written yet:
+With no visible review:
 ```json
 {
   "success": true,
   "data": {
-    "is_subjective": false,
     "overall_score": null,
+    "review_count": 0,
+    "overall_review_count": 0,
     "wfc_score": null,
+    "wfc_review_count": 0,
     "tags": [],
-    "content": null,
-    "visited_at": null,
-    "updated_at": "",
     "ratings": {}
   }
 }
@@ -422,27 +432,30 @@ When no review has been written yet:
 #### Field semantics
 | Field | Type | Notes |
 |-------|------|-------|
-| `is_subjective` | bool | Whether the review reflects personal bias (e.g. a regular's perspective). |
-| `overall_score` | number \| null | 0–5 overall score. `null` if not set. |
-| `wfc_score` | number \| null | 0–5 work-from-cafe suitability score. `null` if not set. |
-| `tags` | array | Visible tags for this cafe. `slug` is `null` for display-only tags. |
-| `content` | string \| null | Full review text. `null` if not written. |
-| `visited_at` | string \| null | Date of most recent visit, `"YYYY-MM-DD"`. `null` if unrecorded. |
-| `updated_at` | string | Timestamp of last review update. Empty string when no review exists. |
-| `ratings` | object | Map of rating category type → entry. Only categories the cafe has been rated in are present. |
+| `overall_score` | number \| null | Average `overall_score` of visible reviews, rounded to 2 decimals. `null` when none has one. |
+| `review_count` | int | Number of visible reviews. |
+| `overall_review_count` | int | Visible reviews that carry an `overall_score`. |
+| `wfc_score` | number \| null | Average work-from-cafe score, rounded to 2 decimals. `null` when none has one. |
+| `wfc_review_count` | int | Visible reviews that carry a `wfc_score`. |
+| `tags` | array | Visible tags for this cafe (independent of reviews). `slug` is `null` for display-only tags. |
+| `ratings` | object | Map of rating category type → entry. A category is present when at least one visible review rated it, whether or not any review has text. |
 | `ratings[type].display_name` | string | Localized label for the category type. |
-| `ratings[type].score` | number | The cafe's score for this category (0–5). |
-| `ratings[type].description` | string | Per-cafe description override for this rating; empty string if none. |
+| `ratings[type].score` | number | Average score in this category over visible reviews, rounded to 2 decimals. |
+| `ratings[type].description` | string | Per-cafe description override, taken from the top visible review that has one (pinned first, then most recently updated); empty string if none. |
 | `ratings[type].range` | array | All defined buckets for that category, ordered by `lower_bound`. |
 | `ratings[type].range[].name` | string | Bucket label (e.g. `"Comfy"`). |
-| `ratings[type].range[].slug` | string \| null | SRP slug `"<bucket-slug>-<type>"`, but only on the bucket the cafe's score falls into and only when that bucket is SRP-eligible; `null` otherwise. |
+| `ratings[type].range[].slug` | string \| null | SRP slug `"<bucket-slug>-<type>"`, only on the bucket containing the average `score` and only when that bucket is SRP-eligible; `null` otherwise. |
 | `ratings[type].range[].description` | string | Bucket short description. |
 | `ratings[type].range[].lower_bound` / `upper_bound` | number | Bucket score range. |
+
+`is_subjective`, `content`, `visited_at` and `updated_at` were removed (BCF-30):
+review text now lives on the individual reviews, the cafe blurb on
+`/v1/cafe/:id` `about`, and "last updated" on `/v1/cafe/:id` `updated_at`.
 
 ### Errors
 | Status | `error` | When |
 |--------|---------|------|
-| 404 | `cafe not found` | No active cafe with the given `id` exists |
+| 404 | `cafe not found` | No cafe with the given `id` exists |
 | 500 | `failed to fetch review` | Unexpected server / DB error |
 
 ### Example
@@ -805,3 +818,175 @@ the email when the provider returns no name.
 Revokes the current session (if any) and expires `bdg_session`. **`204`** with
 no body, even when there was no session or Redis is down. Subject to the
 `Origin` check (`403` `origin not allowed`).
+
+---
+
+## 10. User reviews
+
+Signed-in users can write one review per cafe (BCF-30). New and edited reviews
+are `pending` until approved in mission control; only
+[visible reviews](#visible-reviews) are public. Partnership reviews are entered
+by an admin and have no user account. None of these endpoints change the
+cafe's `updated_at`.
+
+### Review status
+| Value | Meaning |
+|-------|---------|
+| `pending` | Submitted or edited; waiting for moderation. Not public. |
+| `approved` | Public (while the author's account is active). |
+| `rejected` | Refused in moderation. Not public; the author still sees it and can edit it (back to `pending`). |
+| `deleted` | Deleted by its author (or superseded). Never returned. |
+
+### Review item
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Review id. |
+| `reviewer_name` | string | Display name chosen by the author (not the account name). |
+| `overall_score` | number \| null | 1–5. `null` only on legacy reviews. |
+| `wfc_score` | number \| null | 1–5 work-from-cafe score, or `null`. |
+| `content` | string \| null | Review text, or `null`. Single-language. |
+| `visited_at` | string \| null | Month of the visit, `"YYYY-MM"`, or `null`. |
+| `created_at` / `updated_at` | string | `"YYYY-MM-DDTHH:MM:SSZ"`. `updated_at` moves on every edit. |
+| `external_url_title` / `external_url_link` | string \| null | Optional external link (e.g. a partner's article), set by admins. |
+| `ratings` | object | Map rating category type → score given by this review, e.g. `{"vibe": 4, "noise": 2}`. `{}` when none. |
+
+### 10.1 `GET /v1/cafe/:id/reviews`
+
+Visible reviews of the cafe, pinned first, then most recently updated
+(`is_pinned` desc, `updated_at` desc, `id` desc), 5 per page.
+
+| Query param | Notes |
+|-------------|-------|
+| `cursor` | Optional. The `next_cursor` of the previous page; omit for the first page. Opaque. |
+
+#### Success `200`
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 41,
+        "reviewer_name": "Radit",
+        "overall_score": 4.5,
+        "wfc_score": 4.2,
+        "content": null,
+        "visited_at": "2024-11",
+        "created_at": "2024-11-12T08:00:00Z",
+        "updated_at": "2026-05-03T09:55:59Z",
+        "external_url_title": null,
+        "external_url_link": null,
+        "ratings": { "vibe": 3.8, "noise": 1 }
+      }
+    ],
+    "next_cursor": "MXwyMDI2LTA1LTAzVDA5OjU1OjU5LjI0NjU2MXw0MQ"
+  }
+}
+```
+
+`items` is always an array (possibly empty). `next_cursor` is `null` on the
+last page.
+
+#### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 400 | `invalid cursor` | `cursor` is malformed |
+| 404 | `cafe not found` | No cafe with the given `id` exists |
+| 500 | `failed to fetch reviews` | Unexpected server / DB error |
+
+### 10.2 `GET /v1/cafe/:id/reviews/mine`
+
+The signed-in user's review of the cafe, in any status except `deleted`.
+Requires a session (`401` `unauthorized` otherwise). `Cache-Control: no-store`.
+
+#### Success `200`
+A [review item](#review-item) plus `status`:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 57,
+    "reviewer_name": "Dina",
+    "overall_score": 4,
+    "wfc_score": null,
+    "content": "Cozy corner, decent latte.",
+    "visited_at": "2026-09",
+    "created_at": "2026-10-19T03:12:40Z",
+    "updated_at": "2026-10-19T03:12:40Z",
+    "external_url_title": null,
+    "external_url_link": null,
+    "ratings": { "vibe": 4 },
+    "status": "pending"
+  }
+}
+```
+
+#### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 401 | `unauthorized` | Not signed in |
+| 404 | `cafe not found` / `review not found` | Unknown cafe / the user has no review of it |
+| 500 | `failed to fetch review` | Unexpected server / DB error |
+
+### 10.3 `POST /v1/cafe/:id/reviews/mine` / 10.4 `PUT /v1/cafe/:id/reviews/mine`
+
+Create (POST) or replace (PUT) the signed-in user's review. Both store the
+review as `pending` (PUT also bumps `updated_at`, so an approved review leaves
+the public list until re-approved) and replace all of its ratings in one
+transaction. Requires a session and passes the `Origin` check.
+
+#### Body (JSON)
+| Field | Type | Required | Rules |
+|-------|------|----------|-------|
+| `overall_score` | number | yes | 1–5. |
+| `wfc_score` | number \| null | no | 1–5 when set. |
+| `reviewer_name` | string | yes | Trimmed; 1–50 characters. |
+| `visited_at` | string \| null | no | `"YYYY-MM"`, not after the current month (WIB). Stored as the first of the month. `""` = unset. |
+| `content` | string \| null | no | Trimmed; at most 2000 characters. Empty = `null`. |
+| `ratings` | object | no | Map rating category type → score. The type must exist (see `/v1/filters`, plus `price-rank`) and the score must lie within that type's bucket span (lowest `lower_bound` to highest `upper_bound`). Omitted / `{}` removes all ratings. |
+
+```json
+{
+  "overall_score": 4,
+  "wfc_score": null,
+  "reviewer_name": "Dina",
+  "visited_at": "2026-09",
+  "content": "Cozy corner, decent latte.",
+  "ratings": { "vibe": 4, "noise": 2 }
+}
+```
+
+#### Success
+POST **`201`**, PUT **`200`**: the saved review, same shape as
+[10.2](#102-get-v1cafeidreviewsmine) (`status` is `pending`).
+
+#### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 400 | `invalid request body` | Not valid JSON / wrong field types |
+| 400 | `overall_score is required and must be between 1 and 5` | |
+| 400 | `wfc_score must be between 1 and 5` | |
+| 400 | `reviewer_name is required and must be at most 50 characters` | missing, blank, or too long |
+| 400 | `visited_at must be YYYY-MM and not in the future` | |
+| 400 | `content must be at most 2000 characters` | |
+| 400 | `unknown rating type: <type>` | `ratings` key is not a rating type |
+| 400 | `rating score out of range: <type> must be between <min> and <max>` | |
+| 401 | `unauthorized` | Not signed in |
+| 403 | `origin not allowed` | Disallowed `Origin` |
+| 404 | `cafe not found` | Unknown cafe |
+| 404 | `review not found` | PUT: the user has no review of this cafe |
+| 409 | `you already reviewed this cafe` | POST: the user already has a non-deleted review of this cafe (use PUT) |
+| 500 | `failed to save review` | Unexpected server / DB error |
+
+### 10.5 `DELETE /v1/cafe/:id/reviews/mine`
+
+Soft-deletes the signed-in user's review (`status` → `deleted`); the user may
+then POST a new one. **`204`** with no body.
+
+#### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 401 | `unauthorized` | Not signed in |
+| 403 | `origin not allowed` | Disallowed `Origin` |
+| 404 | `cafe not found` / `review not found` | Unknown cafe / no review to delete |
+| 500 | `failed to delete review` | Unexpected server / DB error |

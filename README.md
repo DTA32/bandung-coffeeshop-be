@@ -146,7 +146,9 @@ All `/v1` responses use a standard envelope:
 | `GET` | `/v1/location/:id` | Detail for an area / POI / district |
 | `GET` | `/v1/search/cafes` | Cafe discovery with polygon, radius, or global mode |
 | `GET` | `/v1/cafe/:id` | Full detail for a single cafe |
-| `GET` | `/v1/cafe/:id/review` | Review and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/review` | Review aggregates and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/reviews` | Paginated public reviews of a cafe |
+| `GET` / `POST` / `PUT` / `DELETE` | `/v1/cafe/:id/reviews/mine` | Signed-in user's own review |
 | `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
 | `GET` | `/v1/cafe/random` | One random active cafe |
 | `GET` | `/v1/auth/google` | Start Google sign-in |
@@ -178,6 +180,7 @@ GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
 # Cafe detail and review
 GET /v1/cafe/accio-coffee
 GET /v1/cafe/accio-coffee/review
+GET /v1/cafe/accio-coffee/reviews
 ```
 
 ## License
