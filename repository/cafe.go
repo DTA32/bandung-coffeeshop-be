@@ -356,28 +356,13 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`, statusP))
 
-	// One aliased join per selected rating bucket. cafe_rating is UNIQUE on
-	// (cafe_id, category_type), so each join matches at most one row — no row
-	// fan-out, and AND across categories is the natural intersection.
-	for i, rf := range p.RatingFilters {
-		alias := fmt.Sprintf("cr%d", i)
-		typeP := addArg(rf.Type)
-		lbP := addArg(rf.Lower)
-		ubP := addArg(rf.Upper)
-		sb.WriteString(fmt.Sprintf(`
-		JOIN cafe_rating %s ON %s.cafe_id = c.id
-			AND %s.category_type = %s
-			AND %s.score >= %s AND %s.score <= %s`,
-			alias, alias, alias, typeP, alias, lbP, alias, ubP))
-	}
-
 	if p.Sort == constants.SortRating {
 		sb.WriteString(`
 		LEFT JOIN LATERAL (
-			SELECT overall_score FROM cafe_review
-			WHERE cafe_id = c.id
-			ORDER BY COALESCE(visited_at, created_at::date) DESC, id DESC
-			LIMIT 1
+			SELECT AVG(rv.overall_score) AS overall_score
+			FROM cafe_review rv
+			` + visibleReviewJoin + `
+			WHERE rv.cafe_id = c.id AND ` + visibleReviewCond + `
 		) lr ON TRUE`)
 	}
 
@@ -401,6 +386,25 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		fP := addArg(*p.IsFeatured)
 		sb.WriteString(fmt.Sprintf(`
 			AND c.is_featured = %s`, fP))
+	}
+
+	// Rating buckets (AND across categories): the cafe's average score in each
+	// selected category, over its visible reviews and rounded like the detail
+	// page, falls inside the bucket. Subqueries rather than joins so rows can't
+	// fan out and break COUNT(*) OVER().
+	for _, rf := range p.RatingFilters {
+		typeP := addArg(rf.Type)
+		lbP := addArg(rf.Lower)
+		ubP := addArg(rf.Upper)
+		sb.WriteString(fmt.Sprintf(`
+			AND c.id IN (
+				SELECT cr.cafe_id FROM cafe_rating cr
+				JOIN cafe_review rv ON rv.id = cr.review_id
+				%s
+				WHERE %s AND cr.category_type = %s
+				GROUP BY cr.cafe_id
+				HAVING ROUND(AVG(cr.score), 2) BETWEEN %s AND %s)`,
+			visibleReviewJoin, visibleReviewCond, typeP, lbP, ubP))
 	}
 
 	// Tags (AND): cafe must carry every selected slug. Expressed as a subquery
