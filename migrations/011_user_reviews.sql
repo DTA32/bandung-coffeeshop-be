@@ -40,6 +40,16 @@ alter table cafe_review
 alter table cafe_rating
     add column review_id integer references cafe_review;
 
+-- Reviews that existed before user reviews; 012 clears their text and drops
+-- this table.
+create table review_backfill_011
+(
+    review_id integer primary key references cafe_review
+);
+
+alter table review_backfill_011
+    owner to bdgcafe;
+
 do
 $$
     declare
@@ -76,7 +86,13 @@ $$
         from cafe_rating r
         where not exists (select 1 from cafe_review rv where rv.cafe_id = r.cafe_id);
 
-        -- 3. Every review becomes Radit's, approved and pinned.
+        -- 3. Remember which reviews existed before user reviews (012 clears their
+        --    text, now duplicated in cafe.description), then make every review
+        --    Radit's, approved and pinned.
+        insert into review_backfill_011 (review_id)
+        select id
+        from cafe_review;
+
         update cafe_review
         set user_id       = radit_id,
             reviewer_name = radit_name,

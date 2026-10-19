@@ -842,7 +842,7 @@ cafe's `updated_at`.
 |-------|------|-------|
 | `id` | int | Review id. |
 | `reviewer_name` | string | Display name chosen by the author (not the account name). |
-| `overall_score` | number \| null | 1–5. `null` only on legacy reviews. |
+| `overall_score` | number \| null | 1–5. `null` on partnership reviews without a score and on legacy rating-only reviews. |
 | `wfc_score` | number \| null | 1–5 work-from-cafe score, or `null`. |
 | `content` | string \| null | Review text, or `null`. Single-language. |
 | `visited_at` | string \| null | Month of the visit, `"YYYY-MM"`, or `null`. |

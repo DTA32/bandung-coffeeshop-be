@@ -8,16 +8,14 @@
 
 begin;
 
--- 011 copied each cafe's latest review text into cafe.description; drop the
--- duplicate from the review. Rule: clear content only where it is still an
--- exact copy of the cafe's about text, so nothing written since 011 (by users,
--- or an edited about) is lost. Superseded legacy reviews (status 'deleted' by
--- 011) keep their text for history; they are never served.
-update cafe_review rv
+-- 011 copied each cafe's latest review text into cafe.description; clear the
+-- text of exactly the reviews 011 backfilled (recorded in review_backfill_011),
+-- so nothing written since 011 is touched.
+update cafe_review
 set content = null
-from cafe c
-where c.id = rv.cafe_id
-  and rv.content = c.description;
+where id in (select review_id from review_backfill_011);
+
+drop table review_backfill_011;
 
 alter table cafe_review
     drop column is_subjective,
