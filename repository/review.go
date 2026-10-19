@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -173,4 +174,163 @@ func (r *ReviewRepository) RatingsByReviewIDs(ctx context.Context, ids []int) (m
 		out[id][typ] = score
 	}
 	return out, rows.Err()
+}
+
+// Mine returns the user's non-deleted review of the cafe.
+func (r *ReviewRepository) Mine(ctx context.Context, cafeID, userID int) (*ReviewRow, error) {
+	rv, err := scanReview(r.db.QueryRow(ctx, `
+		SELECT `+reviewColumns+`
+		FROM cafe_review rv
+		WHERE rv.cafe_id = $1 AND rv.user_id = $2 AND rv.status <> 'deleted'
+	`, cafeID, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrReviewNotFound
+	}
+	return rv, err
+}
+
+// RatingBound is the score range a rating type accepts: the span of its
+// rating_category buckets.
+type RatingBound struct{ Min, Max float64 }
+
+// RatingBounds returns the accepted score range per rating type. Types with
+// no buckets are absent (and therefore not rateable).
+func (r *ReviewRepository) RatingBounds(ctx context.Context) (map[string]RatingBound, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT rtl.type, MIN(rc.lower_bound)::float8, MAX(rc.upper_bound)::float8
+		FROM rating_type_label rtl
+		JOIN rating_category rc ON rc.type = rtl.type
+		GROUP BY rtl.type
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]RatingBound)
+	for rows.Next() {
+		var (
+			typ string
+			b   RatingBound
+		)
+		if err := rows.Scan(&typ, &b.Min, &b.Max); err != nil {
+			return nil, err
+		}
+		out[typ] = b
+	}
+	return out, rows.Err()
+}
+
+// ReviewWrite is a validated user review. VisitedAt is "YYYY-MM-01" or nil.
+type ReviewWrite struct {
+	CafeID, UserID int
+	ReviewerName   string
+	OverallScore   float64
+	WFCScore       *float64
+	VisitedAt      *string
+	Content        *string
+	Ratings        map[string]float64
+}
+
+const uniqueViolation = "23505"
+
+// Create inserts the user's review as pending together with its ratings.
+// ErrReviewExists when the user already has a non-deleted review of the cafe.
+func (r *ReviewRepository) Create(ctx context.Context, w ReviewWrite) error {
+	return pgx.BeginFunc(ctx, r.db, func(tx pgx.Tx) error {
+		var dummy int
+		err := tx.QueryRow(ctx, `
+			SELECT 1 FROM cafe_review
+			WHERE cafe_id = $1 AND user_id = $2 AND status <> 'deleted'
+		`, w.CafeID, w.UserID).Scan(&dummy)
+		if err == nil {
+			return ErrReviewExists
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+
+		var id int
+		err = tx.QueryRow(ctx, `
+			INSERT INTO cafe_review (cafe_id, user_id, reviewer_name, status,
+			                         overall_score, wfc_score, visited_at, content)
+			VALUES ($1, $2, $3, 'pending', $4, $5, $6::date, $7)
+			RETURNING id
+		`, w.CafeID, w.UserID, w.ReviewerName, w.OverallScore, w.WFCScore, w.VisitedAt, w.Content).Scan(&id)
+		if err != nil {
+			// A concurrent create lost the race on the one-live-review index.
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation && pgErr.ConstraintName == "idx_cafe_review_cafe_user" {
+				return ErrReviewExists
+			}
+			return err
+		}
+		return replaceRatings(ctx, tx, id, w)
+	})
+}
+
+// Update overwrites the user's review, sends it back to pending and replaces
+// its ratings. ErrReviewNotFound when the user has no non-deleted review.
+func (r *ReviewRepository) Update(ctx context.Context, w ReviewWrite) error {
+	return pgx.BeginFunc(ctx, r.db, func(tx pgx.Tx) error {
+		var id int
+		err := tx.QueryRow(ctx, `
+			UPDATE cafe_review
+			SET reviewer_name = $3, overall_score = $4, wfc_score = $5,
+			    visited_at = $6::date, content = $7,
+			    status = 'pending', updated_at = now()
+			WHERE cafe_id = $1 AND user_id = $2 AND status <> 'deleted'
+			RETURNING id
+		`, w.CafeID, w.UserID, w.ReviewerName, w.OverallScore, w.WFCScore, w.VisitedAt, w.Content).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrReviewNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return replaceRatings(ctx, tx, id, w)
+	})
+}
+
+// replaceRatings swaps the review's cafe_rating rows for w.Ratings.
+//
+// Until 012_user_reviews_cleanup.sql runs, cafe_rating is still UNIQUE on
+// (cafe_id, category_type), so this fails for a second reviewer of an
+// already-rated cafe; 012 replaces it with UNIQUE (review_id, category_type).
+func replaceRatings(ctx context.Context, tx pgx.Tx, reviewID int, w ReviewWrite) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM cafe_rating WHERE review_id = $1`, reviewID); err != nil {
+		return err
+	}
+	if len(w.Ratings) == 0 {
+		return nil
+	}
+	types := make([]string, 0, len(w.Ratings))
+	scores := make([]float64, 0, len(w.Ratings))
+	for t, s := range w.Ratings {
+		types = append(types, t)
+		scores = append(scores, s)
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO cafe_rating (cafe_id, category_type, score, review_id)
+		SELECT $1, x.t, x.s, $2
+		FROM unnest($3::text[], $4::float8[]) AS x(t, s)
+	`, w.CafeID, reviewID, types, scores)
+	return err
+}
+
+// SoftDelete marks the user's review deleted. ErrReviewNotFound when there
+// is no non-deleted review.
+func (r *ReviewRepository) SoftDelete(ctx context.Context, cafeID, userID int) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE cafe_review
+		SET status = 'deleted', updated_at = now()
+		WHERE cafe_id = $1 AND user_id = $2 AND status <> 'deleted'
+	`, cafeID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrReviewNotFound
+	}
+	return nil
 }
