@@ -115,6 +115,10 @@ func main() {
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
 		v1.GET("/cafe/:id/reviews", reviewHdlr.List)
+		v1.GET("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.GetMine)
+		v1.POST("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.CreateMine)
+		v1.PUT("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.UpdateMine)
+		v1.DELETE("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.DeleteMine)
 		v1.GET("/cafe/:id/feed", cafeHdlr.GetFeed)
 		v1.GET("/filters", filterHdlr.Get)
 	}
