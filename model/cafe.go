@@ -53,6 +53,7 @@ type CafeDetailResponse struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description *string         `json:"description"`
+	About       *string         `json:"about"`
 	Status      string          `json:"status"`
 	Images      []LocationImage `json:"images"`
 	Instagram   *string         `json:"instagram"`

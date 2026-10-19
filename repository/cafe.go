@@ -111,6 +111,7 @@ type CafeDetailRow struct {
 	FoodPriceMin, FoodPriceMax     *int
 	AreaID, AreaName               *string
 	DistrictID, DistrictName       *string
+	About                          *string
 	UpdatedAt                      string
 }
 
@@ -550,6 +551,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		       cp.snack_price_min,  cp.snack_price_max,
 		       cp.food_price_min,   cp.food_price_max,
 		       area.id, area.name, district.id, district.name,
+		       NULLIF(BTRIM(`+localized("$2", "c.description_indo", "c.description")+`), ''),
 		       TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM location l
 		JOIN cafe c ON c.location_id = l.id
@@ -577,7 +579,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		&row.SnackPriceMin, &row.SnackPriceMax,
 		&row.FoodPriceMin, &row.FoodPriceMax,
 		&row.AreaID, &row.AreaName, &row.DistrictID, &row.DistrictName,
-		&row.UpdatedAt,
+		&row.About, &row.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrCafeNotFound

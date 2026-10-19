@@ -491,6 +491,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: desc,
+		About:       row.About,
 		Status:      row.Status,
 		Images:      imgs,
 		Instagram:   row.Instagram,
