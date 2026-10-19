@@ -122,12 +122,14 @@ type PriceRankRow struct {
 	RankLabel string
 }
 
-type ReviewRow struct {
-	IsSubjective           bool
-	OverallScore, WFCScore *float64
-	Content                *string
-	VisitedAt              *string
-	UpdatedAt              string
+// ReviewAggregateRow summarises a cafe's visible reviews. Scores are averages
+// rounded to 2 decimals, nil when no visible review carries that score.
+type ReviewAggregateRow struct {
+	OverallScore       *float64
+	ReviewCount        int
+	OverallReviewCount int
+	WFCScore           *float64
+	WFCReviewCount     int
 }
 
 type CafeFeedRow struct {
@@ -670,23 +672,18 @@ func (r *CafeRepository) CafeExistsByLocationID(ctx context.Context, locationID 
 	return true, nil
 }
 
-func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID, lang string) (*ReviewRow, error) {
-	var row ReviewRow
-	err := r.db.QueryRow(ctx, fmt.Sprintf(`
-		SELECT cr.is_subjective, cr.overall_score, cr.wfc_score,
-		       %s, cr.visited_at::text, cr.updated_at::text
-		FROM cafe_review cr
-		JOIN cafe c ON c.id = cr.cafe_id
-		WHERE c.location_id = $1
-		ORDER BY COALESCE(cr.visited_at, cr.created_at::date) DESC, cr.id DESC
-		LIMIT 1
-	`, localized("$2", "cr.content_indo", "cr.content")), locationID, lang).Scan(
-		&row.IsSubjective, &row.OverallScore, &row.WFCScore,
-		&row.Content, &row.VisitedAt, &row.UpdatedAt,
+func (r *CafeRepository) CafeReviewAggregatesByLocationID(ctx context.Context, locationID string) (*ReviewAggregateRow, error) {
+	var row ReviewAggregateRow
+	err := r.db.QueryRow(ctx, `
+		SELECT ROUND(AVG(rv.overall_score), 2)::float8, COUNT(*), COUNT(rv.overall_score),
+		       ROUND(AVG(rv.wfc_score), 2)::float8, COUNT(rv.wfc_score)
+		FROM cafe_review rv
+		JOIN cafe c ON c.id = rv.cafe_id
+		`+visibleReviewJoin+`
+		WHERE c.location_id = $1 AND `+visibleReviewCond, locationID).Scan(
+		&row.OverallScore, &row.ReviewCount, &row.OverallReviewCount,
+		&row.WFCScore, &row.WFCReviewCount,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -749,19 +746,35 @@ func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, l
 	return results, rows.Err()
 }
 
+// CafeRatingsByLocationID averages each rating category over the cafe's
+// visible reviews (rounded to 2 decimals, the precision of the bucket bounds)
+// and joins every bucket of that category. The per-cafe description is the
+// override of the highest-ranked visible review that has one (pinned first,
+// then most recently updated).
 func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID, lang string) ([]CafeRatingRow, error) {
+	override := localized("$2", "cr.short_description_override_indo", "cr.short_description_override")
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT cr.category_type::text, COALESCE(%s, ''), cr.score,
-		       COALESCE(%s, ''),
+		WITH agg AS (
+		    SELECT cr.category_type,
+		           ROUND(AVG(cr.score), 2)::float8 AS score,
+		           (ARRAY_AGG(%s ORDER BY rv.is_pinned DESC, rv.updated_at DESC, rv.id DESC)
+		               FILTER (WHERE COALESCE(%s, '') <> ''))[1] AS description
+		    FROM cafe_rating cr
+		    JOIN cafe_review rv ON rv.id = cr.review_id
+		    JOIN cafe c ON c.id = rv.cafe_id
+		    %s
+		    WHERE c.location_id = $1 AND %s
+		    GROUP BY cr.category_type
+		)
+		SELECT agg.category_type, COALESCE(%s, ''), agg.score,
+		       COALESCE(agg.description, ''),
 		       %s, %s, rc.lower_bound, rc.upper_bound, rc.slug
-		FROM cafe_rating cr
-		JOIN cafe c ON c.id = cr.cafe_id
-		JOIN rating_category rc ON rc.type = cr.category_type
-		LEFT JOIN rating_type_label rtl ON rtl.type = cr.category_type
-		WHERE c.location_id = $1
-		ORDER BY cr.category_type, rc.lower_bound
-	`, localized("$2", "rtl.label_indo", "rtl.label"),
-		localized("$2", "cr.short_description_override_indo", "cr.short_description_override"),
+		FROM agg
+		JOIN rating_category rc ON rc.type = agg.category_type
+		LEFT JOIN rating_type_label rtl ON rtl.type = agg.category_type
+		ORDER BY agg.category_type, rc.lower_bound
+	`, override, override, visibleReviewJoin, visibleReviewCond,
+		localized("$2", "rtl.label_indo", "rtl.label"),
 		localized("$2", "rc.name_indo", "rc.name"),
 		localized("$2", "rc.short_description_indo", "rc.short_description")), locationID, lang)
 	if err != nil {

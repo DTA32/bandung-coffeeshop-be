@@ -551,15 +551,9 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 		return nil, repository.ErrCafeNotFound
 	}
 
-	reviewRow, err := s.repo.CafeReviewByLocationID(ctx, locationID, lang)
+	agg, err := s.repo.CafeReviewAggregatesByLocationID(ctx, locationID)
 	if err != nil {
 		return nil, err
-	}
-	if reviewRow == nil {
-		return &model.CafeReviewResponse{
-			Tags:    []model.CafeTag{},
-			Ratings: model.RatingsResponse{},
-		}, nil
 	}
 
 	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID, lang)
@@ -603,14 +597,13 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 	}
 
 	return &model.CafeReviewResponse{
-		IsSubjective: reviewRow.IsSubjective,
-		OverallScore: reviewRow.OverallScore,
-		WFCScore:     reviewRow.WFCScore,
-		Tags:         tags,
-		Content:      reviewRow.Content,
-		VisitedAt:    reviewRow.VisitedAt,
-		UpdatedAt:    reviewRow.UpdatedAt,
-		Ratings:      ratings,
+		OverallScore:       agg.OverallScore,
+		ReviewCount:        agg.ReviewCount,
+		OverallReviewCount: agg.OverallReviewCount,
+		WFCScore:           agg.WFCScore,
+		WFCReviewCount:     agg.WFCReviewCount,
+		Tags:               tags,
+		Ratings:            ratings,
 	}, nil
 }
 
