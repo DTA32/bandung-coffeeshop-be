@@ -126,7 +126,7 @@ type PriceRankRow struct {
 // rounded to 2 decimals, nil when no visible review carries that score.
 type ReviewAggregateRow struct {
 	OverallScore       *float64
-	ReviewCount        int
+	TotalReviewCount   int
 	OverallReviewCount int
 	WFCScore           *float64
 	WFCReviewCount     int
@@ -685,7 +685,7 @@ func (r *CafeRepository) CafeReviewAggregatesByLocationID(ctx context.Context, l
 		JOIN cafe c ON c.id = rv.cafe_id
 		`+visibleReviewJoin+`
 		WHERE c.location_id = $1 AND `+visibleReviewCond, locationID).Scan(
-		&row.OverallScore, &row.ReviewCount, &row.OverallReviewCount,
+		&row.OverallScore, &row.TotalReviewCount, &row.OverallReviewCount,
 		&row.WFCScore, &row.WFCReviewCount,
 	)
 	if err != nil {

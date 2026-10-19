@@ -598,7 +598,7 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 
 	return &model.CafeReviewResponse{
 		OverallScore:       agg.OverallScore,
-		ReviewCount:        agg.ReviewCount,
+		TotalReviewCount:   agg.TotalReviewCount,
 		OverallReviewCount: agg.OverallReviewCount,
 		WFCScore:           agg.WFCScore,
 		WFCReviewCount:     agg.WFCReviewCount,

@@ -86,7 +86,7 @@ type CafeRank struct {
 // CafeReviewResponse aggregates a cafe's visible reviews.
 type CafeReviewResponse struct {
 	OverallScore       *float64        `json:"overall_score"`
-	ReviewCount        int             `json:"review_count"`
+	TotalReviewCount   int             `json:"total_review_count"`
 	OverallReviewCount int             `json:"overall_review_count"`
 	WFCScore           *float64        `json:"wfc_score"`
 	WFCReviewCount     int             `json:"wfc_review_count"`

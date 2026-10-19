@@ -389,7 +389,7 @@ empty `ratings` (not an error). The individual reviews are served by
   "success": true,
   "data": {
     "overall_score": 4.25,
-    "review_count": 3,
+    "total_review_count": 3,
     "overall_review_count": 2,
     "wfc_score": 4.2,
     "wfc_review_count": 1,
@@ -419,7 +419,7 @@ With no visible review:
   "success": true,
   "data": {
     "overall_score": null,
-    "review_count": 0,
+    "total_review_count": 0,
     "overall_review_count": 0,
     "wfc_score": null,
     "wfc_review_count": 0,
@@ -433,7 +433,7 @@ With no visible review:
 | Field | Type | Notes |
 |-------|------|-------|
 | `overall_score` | number \| null | Average `overall_score` of visible reviews, rounded to 2 decimals. `null` when none has one. |
-| `review_count` | int | Number of visible reviews. |
+| `total_review_count` | int | Number of visible reviews. |
 | `overall_review_count` | int | Visible reviews that carry an `overall_score`. |
 | `wfc_score` | number \| null | Average work-from-cafe score, rounded to 2 decimals. `null` when none has one. |
 | `wfc_review_count` | int | Visible reviews that carry a `wfc_score`. |
