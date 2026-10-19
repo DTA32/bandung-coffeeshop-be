@@ -510,6 +510,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 			FoodPriceMax:   row.FoodPriceMax,
 			Rank:           rank,
 		},
+		UpdatedAt: row.UpdatedAt,
 	}, nil
 }
 

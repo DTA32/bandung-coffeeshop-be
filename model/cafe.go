@@ -62,6 +62,7 @@ type CafeDetailResponse struct {
 	GmapsID     *string         `json:"gmaps_id"`
 	Locations   []Location      `json:"locations"`
 	Price       CafePrice       `json:"price"`
+	UpdatedAt   string          `json:"updated_at"`
 }
 
 type CafePrice struct {
