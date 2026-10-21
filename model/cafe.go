@@ -53,6 +53,7 @@ type CafeDetailResponse struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description *string         `json:"description"`
+	About       *string         `json:"about"`
 	Status      string          `json:"status"`
 	Images      []LocationImage `json:"images"`
 	Instagram   *string         `json:"instagram"`
@@ -62,6 +63,7 @@ type CafeDetailResponse struct {
 	GmapsID     *string         `json:"gmaps_id"`
 	Locations   []Location      `json:"locations"`
 	Price       CafePrice       `json:"price"`
+	UpdatedAt   string          `json:"updated_at"`
 }
 
 type CafePrice struct {
@@ -81,15 +83,15 @@ type CafeRank struct {
 	Label string `json:"label"`
 }
 
+// CafeReviewResponse aggregates a cafe's visible reviews.
 type CafeReviewResponse struct {
-	IsSubjective bool            `json:"is_subjective"`
-	OverallScore *float64        `json:"overall_score"`
-	WFCScore     *float64        `json:"wfc_score"`
-	Tags         []CafeTag       `json:"tags"`
-	Content      *string         `json:"content"`
-	VisitedAt    *string         `json:"visited_at"`
-	UpdatedAt    string          `json:"updated_at"`
-	Ratings      RatingsResponse `json:"ratings"`
+	OverallScore       *float64        `json:"overall_score"`
+	TotalReviewCount   int             `json:"total_review_count"`
+	OverallReviewCount int             `json:"overall_review_count"`
+	WFCScore           *float64        `json:"wfc_score"`
+	WFCReviewCount     int             `json:"wfc_review_count"`
+	Tags               []CafeTag       `json:"tags"`
+	Ratings            RatingsResponse `json:"ratings"`
 }
 
 type CafeFeedItem struct {

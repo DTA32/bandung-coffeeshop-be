@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## About
 
-BDGCafe is a personal Bandung coffee shop review and discovery site. This Go backend serves the search and discovery API. Reviews are single-author and opinionated (not crowd-sourced).
+BDGCafe is a personal Bandung coffee shop review and discovery site. This Go backend serves the search and discovery API. Reviews come from Radit (pinned), partners (admin-entered, no account) and signed-in users; user reviews are moderated (`pending` → `approved`) in mission control before they are public.
 
 ## Commands
 
@@ -61,7 +61,27 @@ psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
 
 # 9. users table (Google sign-in accounts; sessions live in Redis)
 psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
+
+# 10. One-off: align cafe.updated_at with each cafe's latest review (BCF-35)
+psql -U postgres -d bandung_coffeeshop -f migrations/010_cafe_updated_at_backfill.sql
+
+# 11. User reviews, additive part (BCF-29). Needs Radit's users row (sign in
+#     once first); every existing review becomes his, approved + pinned.
+psql -U postgres -d bandung_coffeeshop -v radit_email=<radit's google email> \
+     -f migrations/011_user_reviews.sql
+
+# 12. User reviews cleanup (BCF-29): drops is_subjective / personal_score /
+#     content_indo, moves cafe_rating to UNIQUE (review_id, category_type)
+psql -U postgres -d bandung_coffeeshop -f migrations/012_user_reviews_cleanup.sql
 ```
+
+Production run order for the user-reviews release: run 010 + 011 **before**
+deploying the new BE, then deploy the BE and `bandung-coffeeshop-admin`, then
+run 012 right away. The BE works with and without 012 (it never reads the
+dropped columns). Until 012 runs, cafe_rating is still UNIQUE on
+`(cafe_id, category_type)`, so a second reviewer's ratings on an already-rated
+cafe fail to save; and after 011 the old admin can no longer create reviews
+(`reviewer_name` is NOT NULL).
 
 This repo owns the schema for every BDGCafe service. `bandung-coffeeshop-admin`
 (mission control, `mission-control.bdgcafe.com`) and `bandung-coffeeshop-scraper`
@@ -78,7 +98,7 @@ Copy `.env.example` → `.env` and fill in credentials before running.
 Handler → Service → Repository
 ```
 
-There are five domains — `location`, `cafe`, `filter`, `quicksearch`, and `auth` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search. `auth` spans `repository/user.go` (Postgres), `repository/session.go` (Redis) and `repository/google.go` (OAuth + userinfo) behind `service/auth.go` / `handler/auth.go`.
+There are six domains — `location`, `cafe`, `review`, `filter`, `quicksearch`, and `auth` — each with a handler/service/repository/model file. `weather` is a service/repository pair with no handler of its own: it backs `weather=current` on the cafe search. `auth` spans `repository/user.go` (Postgres), `repository/session.go` (Redis) and `repository/google.go` (OAuth + userinfo) behind `service/auth.go` / `handler/auth.go`.
 
 - `cmd/cmd.go` — entrypoint: loads config, configures CORS (`ALLOWED_ORIGINS`, credentials allowed), creates pgxpool, wires all layers, registers routes and the `/v1` middleware, starts Gin router
 - `config/config.go` — reads `DB_HOST/PORT/USER/PASSWORD/NAME`, `APP_PORT` (default 8080), `REDIS_HOST/PORT/DB`, `WEATHERAPI_KEY`, and auth: `GOOGLE_CLIENT_ID/SECRET`, `PUBLIC_BASE_URL`, `AUTH_CALLBACK_URL` (default `${PUBLIC_BASE_URL}/api/v1/auth/google/callback`), `ALLOWED_ORIGINS` (comma-separated; default `PUBLIC_BASE_URL`, else `http://localhost:3000`), `COOKIE_SECURE` (default true); exposes `DSN()`, `RedisAddr()`, `GoogleAuthEnabled()`
@@ -86,6 +106,7 @@ There are five domains — `location`, `cafe`, `filter`, `quicksearch`, and `aut
 - `middleware/auth.go` — `LoadUser` on the whole `/v1` group: reads the `bdg_session` cookie (no cookie → no Redis/DB hit), resolves the user, drops sessions of deactivated users, degrades to anonymous on any error. `RequireUser` → 401. `CurrentUser(c)` reads the user from the Gin context — use it in handlers that need the signed-in user.
 - `middleware/origin.go` — `RequireAllowedOrigin`: 403 for POST/PUT/DELETE whose `Origin` is present and not in `ALLOWED_ORIGINS`
 - `service/auth.go` — Google sign-in (state + PKCE round-tripped in the `bdg_oauth` cookie), user upsert, session issue/lookup/revoke. Sessions: `session:<sha256(token)>` → user id and `user_sessions:<id>` set, both a fixed 30-day TTL; only the hash is stored. Auth routes answer 503 when Google creds or Redis are missing
+- `repository/review.go` — the shared "visible review" SQL fragments (`visibleReviewJoin` + `visibleReviewCond`: approved, and partnership or active author); use them in every public review read/aggregate (review list, `/review` aggregates, search `ratings` filter and `sort=rating`). Never select `is_subjective` / `personal_score` / `content_indo` (dropped by migration 012). Own-review writes replace the review's `cafe_rating` rows in one transaction
 - `service/weather.go` — Bandung's current weather from weatherapi.com, cached 30 min in Redis (plus an in-process copy and a 24 h last-known fallback); folds provider condition codes into `clear` / `cloudy` / `rain`
 - `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
 - `service/` — input validation and business rules; maps domain errors to handler-visible errors. Defines consumer interfaces over its repository.
@@ -125,7 +146,9 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`), weather filters; sort + pagination)
 - `GET /v1/cafe/random` — one random active cafe ("Surprise me")
 - `GET /v1/cafe/:id` — full cafe detail
-- `GET /v1/cafe/:id/review` — cafe review and ratings
+- `GET /v1/cafe/:id/review` — aggregates over visible reviews (average scores, counts, per-category ratings) + tags
+- `GET /v1/cafe/:id/reviews?cursor=` — visible reviews, pinned first, 5 per page (keyset cursor)
+- `GET|POST|PUT|DELETE /v1/cafe/:id/reviews/mine` — the signed-in user's review (RequireUser); writes go to `pending`, DELETE soft-deletes (204)
 - `GET /v1/cafe/:id/feed` — latest updates feed (up to 10 visible, unexpired `cafe_feed` entries)
 - `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories, price tiers, weather)
 - `GET /v1/auth/:provider?redirect=<path>` — start sign-in (`google` only); 302 to Google

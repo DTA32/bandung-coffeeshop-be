@@ -111,6 +111,8 @@ type CafeDetailRow struct {
 	FoodPriceMin, FoodPriceMax     *int
 	AreaID, AreaName               *string
 	DistrictID, DistrictName       *string
+	About                          *string
+	UpdatedAt                      string
 }
 
 type CafeImageRow struct{ URL, Alt string }
@@ -120,12 +122,14 @@ type PriceRankRow struct {
 	RankLabel string
 }
 
-type ReviewRow struct {
-	IsSubjective           bool
-	OverallScore, WFCScore *float64
-	Content                *string
-	VisitedAt              *string
-	UpdatedAt              string
+// ReviewAggregateRow summarises a cafe's visible reviews. Scores are averages
+// rounded to 2 decimals, nil when no visible review carries that score.
+type ReviewAggregateRow struct {
+	OverallScore       *float64
+	TotalReviewCount   int
+	OverallReviewCount int
+	WFCScore           *float64
+	WFCReviewCount     int
 }
 
 type CafeFeedRow struct {
@@ -352,28 +356,13 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`, statusP))
 
-	// One aliased join per selected rating bucket. cafe_rating is UNIQUE on
-	// (cafe_id, category_type), so each join matches at most one row — no row
-	// fan-out, and AND across categories is the natural intersection.
-	for i, rf := range p.RatingFilters {
-		alias := fmt.Sprintf("cr%d", i)
-		typeP := addArg(rf.Type)
-		lbP := addArg(rf.Lower)
-		ubP := addArg(rf.Upper)
-		sb.WriteString(fmt.Sprintf(`
-		JOIN cafe_rating %s ON %s.cafe_id = c.id
-			AND %s.category_type = %s
-			AND %s.score >= %s AND %s.score <= %s`,
-			alias, alias, alias, typeP, alias, lbP, alias, ubP))
-	}
-
 	if p.Sort == constants.SortRating {
 		sb.WriteString(`
 		LEFT JOIN LATERAL (
-			SELECT overall_score FROM cafe_review
-			WHERE cafe_id = c.id
-			ORDER BY COALESCE(visited_at, created_at::date) DESC, id DESC
-			LIMIT 1
+			SELECT AVG(rv.overall_score) AS overall_score
+			FROM cafe_review rv
+			` + visibleReviewJoin + `
+			WHERE rv.cafe_id = c.id AND ` + visibleReviewCond + `
 		) lr ON TRUE`)
 	}
 
@@ -397,6 +386,25 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		fP := addArg(*p.IsFeatured)
 		sb.WriteString(fmt.Sprintf(`
 			AND c.is_featured = %s`, fP))
+	}
+
+	// Rating buckets (AND across categories): the cafe's average score in each
+	// selected category, over its visible reviews and rounded like the detail
+	// page, falls inside the bucket. Subqueries rather than joins so rows can't
+	// fan out and break COUNT(*) OVER().
+	for _, rf := range p.RatingFilters {
+		typeP := addArg(rf.Type)
+		lbP := addArg(rf.Lower)
+		ubP := addArg(rf.Upper)
+		sb.WriteString(fmt.Sprintf(`
+			AND c.id IN (
+				SELECT cr.cafe_id FROM cafe_rating cr
+				JOIN cafe_review rv ON rv.id = cr.review_id
+				%s
+				WHERE %s AND cr.category_type = %s
+				GROUP BY cr.cafe_id
+				HAVING ROUND(AVG(cr.score), 2) BETWEEN %s AND %s)`,
+			visibleReviewJoin, visibleReviewCond, typeP, lbP, ubP))
 	}
 
 	// Tags (AND): cafe must carry every selected slug. Expressed as a subquery
@@ -548,7 +556,9 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		       cp.coffee_price_min, cp.coffee_price_max,
 		       cp.snack_price_min,  cp.snack_price_max,
 		       cp.food_price_min,   cp.food_price_max,
-		       area.id, area.name, district.id, district.name
+		       area.id, area.name, district.id, district.name,
+		       NULLIF(BTRIM(`+localized("$2", "c.description_indo", "c.description")+`), ''),
+		       TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM location l
 		JOIN cafe c ON c.location_id = l.id
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
@@ -575,6 +585,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		&row.SnackPriceMin, &row.SnackPriceMax,
 		&row.FoodPriceMin, &row.FoodPriceMax,
 		&row.AreaID, &row.AreaName, &row.DistrictID, &row.DistrictName,
+		&row.About, &row.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrCafeNotFound
@@ -665,23 +676,18 @@ func (r *CafeRepository) CafeExistsByLocationID(ctx context.Context, locationID 
 	return true, nil
 }
 
-func (r *CafeRepository) CafeReviewByLocationID(ctx context.Context, locationID, lang string) (*ReviewRow, error) {
-	var row ReviewRow
-	err := r.db.QueryRow(ctx, fmt.Sprintf(`
-		SELECT cr.is_subjective, cr.overall_score, cr.wfc_score,
-		       %s, cr.visited_at::text, cr.updated_at::text
-		FROM cafe_review cr
-		JOIN cafe c ON c.id = cr.cafe_id
-		WHERE c.location_id = $1
-		ORDER BY COALESCE(cr.visited_at, cr.created_at::date) DESC, cr.id DESC
-		LIMIT 1
-	`, localized("$2", "cr.content_indo", "cr.content")), locationID, lang).Scan(
-		&row.IsSubjective, &row.OverallScore, &row.WFCScore,
-		&row.Content, &row.VisitedAt, &row.UpdatedAt,
+func (r *CafeRepository) CafeReviewAggregatesByLocationID(ctx context.Context, locationID string) (*ReviewAggregateRow, error) {
+	var row ReviewAggregateRow
+	err := r.db.QueryRow(ctx, `
+		SELECT ROUND(AVG(rv.overall_score), 2)::float8, COUNT(*), COUNT(rv.overall_score),
+		       ROUND(AVG(rv.wfc_score), 2)::float8, COUNT(rv.wfc_score)
+		FROM cafe_review rv
+		JOIN cafe c ON c.id = rv.cafe_id
+		`+visibleReviewJoin+`
+		WHERE c.location_id = $1 AND `+visibleReviewCond, locationID).Scan(
+		&row.OverallScore, &row.TotalReviewCount, &row.OverallReviewCount,
+		&row.WFCScore, &row.WFCReviewCount,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -744,19 +750,35 @@ func (r *CafeRepository) CafeTagsByLocationID(ctx context.Context, locationID, l
 	return results, rows.Err()
 }
 
+// CafeRatingsByLocationID averages each rating category over the cafe's
+// visible reviews (rounded to 2 decimals, the precision of the bucket bounds)
+// and joins every bucket of that category. The per-cafe description is the
+// override of the highest-ranked visible review that has one (pinned first,
+// then most recently updated).
 func (r *CafeRepository) CafeRatingsByLocationID(ctx context.Context, locationID, lang string) ([]CafeRatingRow, error) {
+	override := localized("$2", "cr.short_description_override_indo", "cr.short_description_override")
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT cr.category_type::text, COALESCE(%s, ''), cr.score,
-		       COALESCE(%s, ''),
+		WITH agg AS (
+		    SELECT cr.category_type,
+		           ROUND(AVG(cr.score), 2)::float8 AS score,
+		           (ARRAY_AGG(%s ORDER BY rv.is_pinned DESC, rv.updated_at DESC, rv.id DESC)
+		               FILTER (WHERE COALESCE(%s, '') <> ''))[1] AS description
+		    FROM cafe_rating cr
+		    JOIN cafe_review rv ON rv.id = cr.review_id
+		    JOIN cafe c ON c.id = rv.cafe_id
+		    %s
+		    WHERE c.location_id = $1 AND %s
+		    GROUP BY cr.category_type
+		)
+		SELECT agg.category_type, COALESCE(%s, ''), agg.score,
+		       COALESCE(agg.description, ''),
 		       %s, %s, rc.lower_bound, rc.upper_bound, rc.slug
-		FROM cafe_rating cr
-		JOIN cafe c ON c.id = cr.cafe_id
-		JOIN rating_category rc ON rc.type = cr.category_type
-		LEFT JOIN rating_type_label rtl ON rtl.type = cr.category_type
-		WHERE c.location_id = $1
-		ORDER BY cr.category_type, rc.lower_bound
-	`, localized("$2", "rtl.label_indo", "rtl.label"),
-		localized("$2", "cr.short_description_override_indo", "cr.short_description_override"),
+		FROM agg
+		JOIN rating_category rc ON rc.type = agg.category_type
+		LEFT JOIN rating_type_label rtl ON rtl.type = agg.category_type
+		ORDER BY agg.category_type, rc.lower_bound
+	`, override, override, visibleReviewJoin, visibleReviewCond,
+		localized("$2", "rtl.label_indo", "rtl.label"),
 		localized("$2", "rc.name_indo", "rc.name"),
 		localized("$2", "rc.short_description_indo", "rc.short_description")), locationID, lang)
 	if err != nil {

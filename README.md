@@ -45,9 +45,29 @@ psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
 # 9. users table (Google sign-in accounts; sessions live in Redis)
 psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
 
+# 10. One-off: align cafe.updated_at with each cafe's latest review (BCF-35)
+psql -U postgres -d bandung_coffeeshop -f migrations/010_cafe_updated_at_backfill.sql
+
+# 11. User reviews, additive part (BCF-29). Needs Radit's users row (sign in
+#     once first); every existing review becomes his, approved + pinned.
+psql -U postgres -d bandung_coffeeshop -v radit_email=<radit's google email> \
+     -f migrations/011_user_reviews.sql
+
+# 12. User reviews cleanup (BCF-29): drops is_subjective / personal_score /
+#     content_indo, moves cafe_rating to UNIQUE (review_id, category_type)
+psql -U postgres -d bandung_coffeeshop -f migrations/012_user_reviews_cleanup.sql
+
 # Run
 go run ./cmd
 ```
+
+Production run order for the user-reviews release: run 010 + 011 **before**
+deploying the new BE, then deploy the BE and `bandung-coffeeshop-admin`, then
+run 012 right away. The BE works with and without 012 (it never reads the
+dropped columns). Until 012 runs, cafe_rating is still UNIQUE on
+`(cafe_id, category_type)`, so a second reviewer's ratings on an already-rated
+cafe fail to save; and after 011 the old admin can no longer create reviews
+(`reviewer_name` is NOT NULL).
 
 ### Configuration
 
@@ -126,7 +146,9 @@ All `/v1` responses use a standard envelope:
 | `GET` | `/v1/location/:id` | Detail for an area / POI / district |
 | `GET` | `/v1/search/cafes` | Cafe discovery with polygon, radius, or global mode |
 | `GET` | `/v1/cafe/:id` | Full detail for a single cafe |
-| `GET` | `/v1/cafe/:id/review` | Review and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/review` | Review aggregates and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/reviews` | Paginated public reviews of a cafe |
+| `GET` / `POST` / `PUT` / `DELETE` | `/v1/cafe/:id/reviews/mine` | Signed-in user's own review |
 | `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
 | `GET` | `/v1/cafe/random` | One random active cafe |
 | `GET` | `/v1/auth/google` | Start Google sign-in |
@@ -158,6 +180,7 @@ GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
 # Cafe detail and review
 GET /v1/cafe/accio-coffee
 GET /v1/cafe/accio-coffee/review
+GET /v1/cafe/accio-coffee/reviews
 ```
 
 ## License
