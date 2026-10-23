@@ -34,9 +34,40 @@ psql -U postgres -d bandung_coffeeshop -f migrations/003_data_seeder.sql
 # 4. Seed area/district polygons (OpenStreetMap / Nominatim)
 python3 migrations/004_area_district_seeder.py
 
+# 5. cafe.weather column
+psql -U postgres -d bandung_coffeeshop -f migrations/005_cafe_weather.sql
+
+# 6–8. Freshness pipeline: cafe phone + menu, collector tables, cafe feed
+psql -U postgres -d bandung_coffeeshop -f migrations/006_cafe_contact.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/007_collector.sql
+psql -U postgres -d bandung_coffeeshop -f migrations/008_cafe_feed.sql
+
+# 9. users table (Google sign-in accounts; sessions live in Redis)
+psql -U postgres -d bandung_coffeeshop -f migrations/009_users.sql
+
+# 10. One-off: align cafe.updated_at with each cafe's latest review (BCF-35)
+psql -U postgres -d bandung_coffeeshop -f migrations/010_cafe_updated_at_backfill.sql
+
+# 11. User reviews, additive part (BCF-29). Needs Radit's users row (sign in
+#     once first); every existing review becomes his, approved + pinned.
+psql -U postgres -d bandung_coffeeshop -v radit_email=<radit's google email> \
+     -f migrations/011_user_reviews.sql
+
+# 12. User reviews cleanup (BCF-29): drops is_subjective / personal_score /
+#     content_indo, moves cafe_rating to UNIQUE (review_id, category_type)
+psql -U postgres -d bandung_coffeeshop -f migrations/012_user_reviews_cleanup.sql
+
 # Run
 go run ./cmd
 ```
+
+Production run order for the user-reviews release: run 010 + 011 **before**
+deploying the new BE, then deploy the BE and `bandung-coffeeshop-admin`, then
+run 012 right away. The BE works with and without 012 (it never reads the
+dropped columns). Until 012 runs, cafe_rating is still UNIQUE on
+`(cafe_id, category_type)`, so a second reviewer's ratings on an already-rated
+cafe fail to save; and after 011 the old admin can no longer create reviews
+(`reviewer_name` is NOT NULL).
 
 ### Configuration
 
@@ -48,6 +79,13 @@ go run ./cmd
 | `DB_USER`     | `postgres`           | Database user     |
 | `DB_PASSWORD` | —                    | Database password |
 | `DB_NAME`     | `bandung_coffeeshop` | Database name     |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` | — / `6379` / `0` | Redis (weather cache + sessions); empty host disables both |
+| `WEATHERAPI_KEY` | — | weatherapi.com key for "Match the weather" |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Google OAuth web client; empty disables sign-in (auth routes 503) |
+| `PUBLIC_BASE_URL` | — | Public FE origin, e.g. `https://bdgcafe.com`; post-login redirects are absolute against it |
+| `AUTH_CALLBACK_URL` | `${PUBLIC_BASE_URL}/api/v1/auth/google/callback` | OAuth redirect URI registered with Google |
+| `ALLOWED_ORIGINS` | `PUBLIC_BASE_URL` | Comma-separated CORS origins (credentials allowed) |
+| `COOKIE_SECURE` | `true` | `Secure` flag on auth cookies; `false` for plain-http local dev |
 
 ## Development
 
@@ -108,8 +146,15 @@ All `/v1` responses use a standard envelope:
 | `GET` | `/v1/location/:id` | Detail for an area / POI / district |
 | `GET` | `/v1/search/cafes` | Cafe discovery with polygon, radius, or global mode |
 | `GET` | `/v1/cafe/:id` | Full detail for a single cafe |
-| `GET` | `/v1/cafe/:id/review` | Review and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/review` | Review aggregates and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id/reviews` | Paginated public reviews of a cafe |
+| `GET` / `POST` / `PUT` / `DELETE` | `/v1/cafe/:id/reviews/mine` | Signed-in user's own review |
 | `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
+| `GET` | `/v1/cafe/random` | One random active cafe |
+| `GET` | `/v1/auth/google` | Start Google sign-in |
+| `GET` | `/v1/auth/google/callback` | OAuth callback (sets the session cookie) |
+| `GET` | `/v1/me` | Signed-in user |
+| `POST` | `/v1/auth/logout` | Sign out |
 
 See [`docs/api-contracts.md`](docs/api-contracts.md) for full request/response schemas.
 
@@ -135,6 +180,7 @@ GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
 # Cafe detail and review
 GET /v1/cafe/accio-coffee
 GET /v1/cafe/accio-coffee/review
+GET /v1/cafe/accio-coffee/reviews
 ```
 
 ## License

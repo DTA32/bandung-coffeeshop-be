@@ -13,7 +13,12 @@ type errorResponse struct {
 }
 
 func Success(c *gin.Context, data any) {
-	c.JSON(200, successResponse{Success: true, Data: data})
+	SuccessStatus(c, 200, data)
+}
+
+// SuccessStatus is Success with a non-200 status, e.g. 201 Created.
+func SuccessStatus(c *gin.Context, code int, data any) {
+	c.JSON(code, successResponse{Success: true, Data: data})
 }
 
 func Error(c *gin.Context, code int, msg string) {

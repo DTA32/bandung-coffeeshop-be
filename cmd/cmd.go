@@ -7,6 +7,7 @@ import (
 	"github.com/dta32/bandung-coffeeshop-be/cache"
 	"github.com/dta32/bandung-coffeeshop-be/config"
 	"github.com/dta32/bandung-coffeeshop-be/handler"
+	"github.com/dta32/bandung-coffeeshop-be/middleware"
 	"github.com/dta32/bandung-coffeeshop-be/repository"
 	"github.com/dta32/bandung-coffeeshop-be/service"
 	"github.com/gin-contrib/cors"
@@ -16,16 +17,17 @@ import (
 )
 
 func main() {
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
-
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, reading from environment")
 	}
 
 	cfg := config.Load()
+
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowOrigins = cfg.AllowedOrigins
+	corsConfig.AllowCredentials = true
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
 
 	pool, err := pgxpool.New(context.Background(), cfg.DSN())
 	if err != nil {
@@ -65,6 +67,10 @@ func main() {
 	cafeSvc := service.NewCafeService(cafeRepo, weatherSvc)
 	cafeHdlr := handler.NewCafeHandler(cafeSvc)
 
+	reviewRepo := repository.NewReviewRepository(pool)
+	reviewSvc := service.NewReviewService(reviewRepo)
+	reviewHdlr := handler.NewReviewHandler(reviewSvc)
+
 	filterRepo := repository.NewFilterRepository(pool)
 	filterSvc := service.NewFilterService(filterRepo)
 	filterHdlr := handler.NewFilterHandler(filterSvc)
@@ -73,12 +79,34 @@ func main() {
 	quicksearchSvc := service.NewQuicksearchService(quicksearchRepo)
 	quicksearchHdlr := handler.NewQuicksearchHandler(quicksearchSvc)
 
+	// Auth needs Google credentials and Redis (sessions); without either the
+	// auth routes answer 503 and everyone browses anonymously.
+	var googleRepo *repository.GoogleRepository
+	if cfg.GoogleAuthEnabled() {
+		googleRepo = repository.NewGoogleRepository(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.AuthCallbackURL)
+	} else {
+		log.Println("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/PUBLIC_BASE_URL not set; auth routes respond 503")
+	}
+	if redisCache == nil {
+		log.Println("REDIS_HOST not set; auth routes respond 503 (sessions need redis)")
+	}
+	userRepo := repository.NewUserRepository(pool)
+	sessionRepo := repository.NewSessionRepository(redisCache)
+	authSvc := service.NewAuthService(userRepo, sessionRepo, googleRepo)
+	authHdlr := handler.NewAuthHandler(authSvc, cfg.PublicBaseURL, cfg.CookieSecure)
+
 	r := gin.Default()
 	r.Use(cors.New(corsConfig))
 	r.GET("/health", handler.Health)
 
 	v1 := r.Group("/v1")
+	v1.Use(middleware.RequireAllowedOrigin(cfg.AllowedOrigins), middleware.LoadUser(authSvc))
 	{
+		v1.GET("/auth/:provider", authHdlr.Login)
+		v1.GET("/auth/:provider/callback", authHdlr.Callback)
+		v1.POST("/auth/logout", authHdlr.Logout)
+		v1.GET("/me", middleware.RequireUser, authHdlr.Me)
+
 		v1.GET("/quicksearch", quicksearchHdlr.Quicksearch)
 		v1.GET("/location", locationHdlr.List)
 		v1.GET("/location/:id", locationHdlr.GetByID)
@@ -86,6 +114,11 @@ func main() {
 		v1.GET("/cafe/random", cafeHdlr.Random)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)
+		v1.GET("/cafe/:id/reviews", reviewHdlr.List)
+		v1.GET("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.GetMine)
+		v1.POST("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.CreateMine)
+		v1.PUT("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.UpdateMine)
+		v1.DELETE("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.DeleteMine)
 		v1.GET("/cafe/:id/feed", cafeHdlr.GetFeed)
 		v1.GET("/filters", filterHdlr.Get)
 	}

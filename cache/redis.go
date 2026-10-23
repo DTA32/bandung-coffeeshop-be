@@ -42,6 +42,13 @@ func (r *Redis) Set(ctx context.Context, key string, val []byte, ttl time.Durati
 	return r.rdb.Set(ctx, key, val, ttl).Err()
 }
 
+func (r *Redis) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) error {
+	ctx, cancel := context.WithTimeout(ctx, opTimeout)
+	defer cancel()
+	_, err := r.rdb.TxPipelined(ctx, fn)
+	return err
+}
+
 func (r *Redis) Close() error {
 	return r.rdb.Close()
 }

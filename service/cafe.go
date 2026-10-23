@@ -491,6 +491,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: desc,
+		About:       row.About,
 		Status:      row.Status,
 		Images:      imgs,
 		Instagram:   row.Instagram,
@@ -510,6 +511,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 			FoodPriceMax:   row.FoodPriceMax,
 			Rank:           rank,
 		},
+		UpdatedAt: row.UpdatedAt,
 	}, nil
 }
 
@@ -549,15 +551,9 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 		return nil, repository.ErrCafeNotFound
 	}
 
-	reviewRow, err := s.repo.CafeReviewByLocationID(ctx, locationID, lang)
+	agg, err := s.repo.CafeReviewAggregatesByLocationID(ctx, locationID)
 	if err != nil {
 		return nil, err
-	}
-	if reviewRow == nil {
-		return &model.CafeReviewResponse{
-			Tags:    []model.CafeTag{},
-			Ratings: model.RatingsResponse{},
-		}, nil
 	}
 
 	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID, lang)
@@ -601,14 +597,13 @@ func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string
 	}
 
 	return &model.CafeReviewResponse{
-		IsSubjective: reviewRow.IsSubjective,
-		OverallScore: reviewRow.OverallScore,
-		WFCScore:     reviewRow.WFCScore,
-		Tags:         tags,
-		Content:      reviewRow.Content,
-		VisitedAt:    reviewRow.VisitedAt,
-		UpdatedAt:    reviewRow.UpdatedAt,
-		Ratings:      ratings,
+		OverallScore:       agg.OverallScore,
+		TotalReviewCount:   agg.TotalReviewCount,
+		OverallReviewCount: agg.OverallReviewCount,
+		WFCScore:           agg.WFCScore,
+		WFCReviewCount:     agg.WFCReviewCount,
+		Tags:               tags,
+		Ratings:            ratings,
 	}, nil
 }
 
