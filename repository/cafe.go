@@ -79,7 +79,8 @@ type CafeSearchParams struct {
 
 	TagSlugs      []string
 	RatingFilters []RatingFilterParam
-	OpenHour      *string
+	OpenHour      *string // "HH:MM", evaluated on OpenDate
+	OpenDate      string  // "YYYY-MM-DD", today in Jakarta; set with OpenHour
 	PriceMin      *int
 	PriceMax      *int
 	IsFeatured    *bool
@@ -433,17 +434,56 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			AND cp.price_range_min <= %s`, pMaxP))
 	}
 
-	// Open hours: cafe is open at the given time. Handles
-	// - same-day ranges (open < close), incl. 24-hour cafes stored as 00:00–23:59
-	// - overnight ranges (close < open)
-	// - excludes cafes with unknown (NULL)
+	// Open hours: cafe is open at OpenHour on OpenDate, resolved from cafe_hour
+	// with the tiered rules in CLAUDE.md "Opening hours". Every row is matched
+	// against D (today) and D-1 (yesterday, for overnight spill) and scored by
+	// tier: 1 dated + day, 2 dated + null day, 3 undated + day, 4 undated +
+	// null day. Per (cafe, date) only the lowest tier present is kept; a kept
+	// row with close = true makes that date closed. Then the cafe is open when
+	// - D has a same-day range (open < close, incl. 00:00–23:59) holding T, or
+	//   an overnight range (close < open) with T >= open
+	// - D-1 has an overnight range with T <= close (spill), even if D is closed
+	// Unknown hours (no rows, NULL open/close) never match.
 	if p.OpenHour != nil {
 		ohP := addArg(*p.OpenHour)
+		odP := addArg(p.OpenDate)
 		sb.WriteString(fmt.Sprintf(`
-			AND c.open_hour IS NOT NULL AND c.close_hour IS NOT NULL AND (
-				(c.close_hour > c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
-				OR (c.close_hour < c.open_hour AND (%s::time >= c.open_hour OR %s::time <= c.close_hour)))`,
-			ohP, ohP, ohP, ohP))
+			AND c.id IN (
+				WITH oh_date AS (
+					SELECT dd, prev,
+					       (ARRAY['sun','mon','tue','wed','thu','fri','sat'])[EXTRACT(DOW FROM dd)::int + 1]::day_enum AS dow
+					FROM (VALUES (%[2]s::date, FALSE), (%[2]s::date - 1, TRUE)) v(dd, prev)
+				),
+				oh_match AS (
+					SELECT h.cafe_id, od.prev, h.open_hour, h.close_hour, h.close AS is_closed,
+					       CASE
+					           WHEN h.valid_from IS NOT NULL OR h.valid_until IS NOT NULL
+					               THEN CASE WHEN h.day IS NOT NULL THEN 1 ELSE 2 END
+					           WHEN h.day IS NOT NULL THEN 3
+					           ELSE 4
+					       END AS tier
+					FROM cafe_hour h
+					JOIN oh_date od
+					  ON (h.day IS NULL OR h.day = od.dow)
+					 AND (h.valid_from IS NULL OR h.valid_from <= od.dd)
+					 AND (h.valid_until IS NULL OR h.valid_until >= od.dd)
+				),
+				oh_ranked AS (
+					SELECT *, MIN(tier) OVER (PARTITION BY cafe_id, prev) AS best_tier
+					FROM oh_match
+				),
+				oh_kept AS (
+					SELECT cafe_id, prev, open_hour, close_hour,
+					       BOOL_OR(is_closed) OVER (PARTITION BY cafe_id, prev) AS day_closed
+					FROM oh_ranked
+					WHERE tier = best_tier
+				)
+				SELECT cafe_id FROM oh_kept
+				WHERE NOT day_closed AND open_hour IS NOT NULL AND close_hour IS NOT NULL AND (
+					(NOT prev AND close_hour > open_hour AND %[1]s::time >= open_hour AND %[1]s::time <= close_hour)
+					OR (NOT prev AND close_hour < open_hour AND %[1]s::time >= open_hour)
+					OR (prev AND close_hour < open_hour AND %[1]s::time <= close_hour)))`,
+			ohP, odP))
 	}
 
 	// Weather (OR): the cafe suits at least one of the selected conditions.

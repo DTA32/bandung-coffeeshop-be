@@ -40,6 +40,11 @@ const (
 	defaultRadiusMax = 3000 // in meters
 )
 
+// jakarta is Asia/Jakarta (WIB, UTC+7, no DST): "today" and "now" for opening
+// hours. A fixed zone rather than time.LoadLocation: the alpine runtime image
+// ships no tzdata.
+var jakarta = time.FixedZone("WIB", 7*3600)
+
 var validSorts = map[string]struct{}{
 	constants.SortDefault:    {},
 	constants.SortUpdatedAt:  {},
@@ -161,13 +166,16 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		tagRow = nil
 	}
 
-	// Open hours: resolve "now" to the current time in WIB (UTC+7, no DST).
+	// Open hours: "now" is the current time in Jakarta; an HH:MM time is
+	// evaluated on today's Jakarta date either way.
 	if req.OpenHour != "" {
+		now := time.Now().In(jakarta)
 		hhmm := req.OpenHour
 		if req.OpenHour == "now" {
-			hhmm = time.Now().In(time.FixedZone("WIB", 7*3600)).Format("15:04")
+			hhmm = now.Format("15:04")
 		}
 		params.OpenHour = &hhmm
+		params.OpenDate = now.Format(time.DateOnly)
 	}
 	params.PriceMin = req.PriceMin
 	params.PriceMax = req.PriceMax
