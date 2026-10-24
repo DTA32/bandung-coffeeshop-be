@@ -68,7 +68,7 @@ func (s *SitemapService) build(ctx context.Context) (*model.SitemapResponse, err
 	}
 	cafes := make([]model.SitemapCafe, 0, len(cafeRows))
 	for _, c := range cafeRows {
-		cafes = append(cafes, model.SitemapCafe{ID: c.ID, Status: c.Status, UpdatedAt: c.UpdatedAt})
+		cafes = append(cafes, model.SitemapCafe{ID: c.ID, UpdatedAt: c.UpdatedAt})
 	}
 
 	filters, err := s.srpFilters(ctx)

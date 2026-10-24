@@ -16,7 +16,6 @@ func NewSitemapRepository(db *pgxpool.Pool) *SitemapRepository {
 
 type SitemapCafeRow struct {
 	ID        string
-	Status    string
 	UpdatedAt string
 }
 
@@ -33,7 +32,7 @@ type SitemapLocationRow struct {
 // its updated_at, formatted like the cafe detail's.
 func (r *SitemapRepository) Cafes(ctx context.Context) ([]SitemapCafeRow, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT l.id, l.status::text, TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		SELECT l.id, TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM cafe c
 		JOIN location l ON l.id = c.location_id
 		WHERE l.status IN ('active', 'closed')
@@ -47,7 +46,7 @@ func (r *SitemapRepository) Cafes(ctx context.Context) ([]SitemapCafeRow, error)
 	cafes := []SitemapCafeRow{}
 	for rows.Next() {
 		var row SitemapCafeRow
-		if err := rows.Scan(&row.ID, &row.Status, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.UpdatedAt); err != nil {
 			return nil, err
 		}
 		cafes = append(cafes, row)

@@ -1008,7 +1008,7 @@ and served from memory in between. No query params; not localized.
   "success": true,
   "data": {
     "cafes": [
-      { "id": "2f-coffee", "status": "active", "updated_at": "2026-10-20T08:12:45Z" }
+      { "id": "2f-coffee", "updated_at": "2026-10-20T08:12:45Z" }
     ],
     "srps": [
       { "locations": [], "filter": { "type": "tag", "slug": "wfc-friendly" }, "count": 42, "last_modified": "2026-10-22T03:00:00Z" },

@@ -9,7 +9,6 @@ type SitemapResponse struct {
 
 type SitemapCafe struct {
 	ID        string `json:"id"`
-	Status    string `json:"status"`     // "active" or "closed"
 	UpdatedAt string `json:"updated_at"` // ISO-8601 UTC
 }
 
