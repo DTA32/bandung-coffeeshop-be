@@ -40,6 +40,11 @@ const (
 	defaultRadiusMax = 3000 // in meters
 )
 
+// jakarta is Asia/Jakarta (WIB, UTC+7, no DST): "today" and "now" for opening
+// hours. A fixed zone rather than time.LoadLocation: the alpine runtime image
+// ships no tzdata.
+var jakarta = time.FixedZone("WIB", 7*3600)
+
 var validSorts = map[string]struct{}{
 	constants.SortDefault:    {},
 	constants.SortUpdatedAt:  {},
@@ -161,13 +166,16 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		tagRow = nil
 	}
 
-	// Open hours: resolve "now" to the current time in WIB (UTC+7, no DST).
+	// Open hours: "now" is the current time in Jakarta; an HH:MM time is
+	// evaluated on today's Jakarta date either way.
 	if req.OpenHour != "" {
+		now := time.Now().In(jakarta)
 		hhmm := req.OpenHour
 		if req.OpenHour == "now" {
-			hhmm = time.Now().In(time.FixedZone("WIB", 7*3600)).Format("15:04")
+			hhmm = now.Format("15:04")
 		}
 		params.OpenHour = &hhmm
+		params.OpenDate = now.Format(time.DateOnly)
 	}
 	params.PriceMin = req.PriceMin
 	params.PriceMax = req.PriceMax
@@ -463,6 +471,11 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		return nil, err
 	}
 
+	hourRows, err := s.repo.CafeHoursByLocationID(ctx, locationID)
+	if err != nil {
+		return nil, err
+	}
+
 	imgs := make([]model.LocationImage, 0, len(images))
 	for _, img := range images {
 		imgs = append(imgs, model.LocationImage{URL: img.URL, Description: img.Alt})
@@ -488,18 +501,18 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 	}
 
 	return &model.CafeDetailResponse{
-		ID:          row.ID,
-		Name:        row.Name,
-		Description: desc,
-		About:       row.About,
-		Status:      row.Status,
-		Images:      imgs,
-		Instagram:   row.Instagram,
-		Menu:        row.Menu,
-		OpenHour:    row.OpenHour,
-		CloseHour:   row.CloseHour,
-		GmapsID:     row.GmapsID,
-		Locations:   loc,
+		ID:           row.ID,
+		Name:         row.Name,
+		Description:  desc,
+		About:        row.About,
+		Status:       row.Status,
+		Images:       imgs,
+		Instagram:    row.Instagram,
+		Menu:         row.Menu,
+		Hours:        ResolveHours(hourRows, time.Now().In(jakarta)),
+		RegularHours: ResolveRegularHours(hourRows),
+		GmapsID:      row.GmapsID,
+		Locations:    loc,
 		Price: model.CafePrice{
 			PriceRangeMin:  row.PriceRangeMin,
 			PriceRangeMax:  row.PriceRangeMax,
@@ -628,4 +641,110 @@ func ParseCoords(s string) (*model.Coordinates, error) {
 		return nil, ErrInvalidCoords
 	}
 	return &model.Coordinates{Lat: lat, Lng: lng}, nil
+}
+
+// hoursDays is how many days GET /v1/cafe/:id resolves, starting today.
+const hoursDays = 7
+
+// weekdays is mon→sun, the order of regular_hours; dayNames maps time.Weekday
+// to the day_enum value.
+var (
+	weekdays = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+	dayNames = [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+)
+
+// Tiers, most specific first (CLAUDE.md "Opening hours"). Dated rows are one
+// tier where a matching day beats a null day.
+const (
+	tierNone = iota
+	tierDatedDay
+	tierDatedAny
+	tierDay
+	tierAny
+)
+
+// hourTier returns the tier of row h for a date (YYYY-MM-DD) on weekday day,
+// or tierNone when h does not apply to it.
+func hourTier(h repository.CafeHourRow, date, day string) int {
+	if h.Day != nil && *h.Day != day {
+		return tierNone
+	}
+	if h.ValidFrom == nil && h.ValidUntil == nil {
+		if h.Day != nil {
+			return tierDay
+		}
+		return tierAny
+	}
+	// Dates are YYYY-MM-DD, so they compare as strings. A null bound is open.
+	if (h.ValidFrom != nil && *h.ValidFrom > date) || (h.ValidUntil != nil && *h.ValidUntil < date) {
+		return tierNone
+	}
+	if h.Day != nil {
+		return tierDatedDay
+	}
+	return tierDatedAny
+}
+
+// resolveDay applies the rows of the most specific tier present for a date.
+// dated = false skips the dated tiers (regular hours). Closed wins over any
+// open row in the same tier; rows with a NULL open or close are ignored, and
+// no usable row means unknown hours (not closed, no ranges).
+func resolveDay(rows []repository.CafeHourRow, date, day string, dated bool) (closed, special bool, ranges []model.HourRange) {
+	best := tierNone
+	for _, h := range rows {
+		t := hourTier(h, date, day)
+		if t == tierNone || (!dated && t < tierDay) {
+			continue
+		}
+		if best == tierNone || t < best {
+			best = t
+		}
+	}
+	ranges = []model.HourRange{}
+	if best == tierNone {
+		return false, false, ranges
+	}
+	special = best == tierDatedDay || best == tierDatedAny
+	for _, h := range rows {
+		if hourTier(h, date, day) != best {
+			continue
+		}
+		if h.Close {
+			return true, special, []model.HourRange{}
+		}
+		if h.OpenHour != nil && h.CloseHour != nil {
+			ranges = append(ranges, model.HourRange{Open: *h.OpenHour, Close: *h.CloseHour})
+		}
+	}
+	slices.SortFunc(ranges, func(a, b model.HourRange) int {
+		if c := strings.Compare(a.Open, b.Open); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Close, b.Close)
+	})
+	return false, special, ranges
+}
+
+// ResolveHours resolves a cafe's cafe_hour rows into its schedule for the 7
+// days starting today (a Jakarta time; only its date is used).
+func ResolveHours(rows []repository.CafeHourRow, today time.Time) []model.CafeDayHours {
+	out := make([]model.CafeDayHours, 0, hoursDays)
+	for i := range hoursDays {
+		d := today.AddDate(0, 0, i)
+		date, day := d.Format(time.DateOnly), dayNames[d.Weekday()]
+		closed, special, ranges := resolveDay(rows, date, day, true)
+		out = append(out, model.CafeDayHours{Date: date, Day: day, Closed: closed, Special: special, Ranges: ranges})
+	}
+	return out
+}
+
+// ResolveRegularHours resolves the regular week, mon→sun, from undated rows
+// only (dated rows are holidays / special events).
+func ResolveRegularHours(rows []repository.CafeHourRow) []model.CafeRegularHours {
+	out := make([]model.CafeRegularHours, 0, len(weekdays))
+	for _, day := range weekdays {
+		closed, _, ranges := resolveDay(rows, "", day, false)
+		out = append(out, model.CafeRegularHours{Day: day, Closed: closed, Ranges: ranges})
+	}
+	return out
 }

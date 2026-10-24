@@ -79,7 +79,8 @@ type CafeSearchParams struct {
 
 	TagSlugs      []string
 	RatingFilters []RatingFilterParam
-	OpenHour      *string
+	OpenHour      *string // "HH:MM", evaluated on OpenDate
+	OpenDate      string  // "YYYY-MM-DD", today in Jakarta; set with OpenHour
 	PriceMin      *int
 	PriceMax      *int
 	IsFeatured    *bool
@@ -104,7 +105,6 @@ type CafeDetailRow struct {
 	ID, Name, Status, Description  string
 	GmapsID                        *string
 	Instagram, Menu                *string
-	OpenHour, CloseHour            *string
 	PriceRangeMin, PriceRangeMax   *int
 	CoffeePriceMin, CoffeePriceMax *int
 	SnackPriceMin, SnackPriceMax   *int
@@ -113,6 +113,15 @@ type CafeDetailRow struct {
 	DistrictID, DistrictName       *string
 	About                          *string
 	UpdatedAt                      string
+}
+
+// CafeHourRow is a raw cafe_hour row: times "HH:MM", dates "YYYY-MM-DD", Day a
+// day_enum value or nil (every day). The service resolves them per date.
+type CafeHourRow struct {
+	Day                   *string
+	OpenHour, CloseHour   *string
+	ValidFrom, ValidUntil *string
+	Close                 bool
 }
 
 type CafeImageRow struct{ URL, Alt string }
@@ -433,17 +442,56 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 			AND cp.price_range_min <= %s`, pMaxP))
 	}
 
-	// Open hours: cafe is open at the given time. Handles
-	// - same-day ranges (open < close), incl. 24-hour cafes stored as 00:00–23:59
-	// - overnight ranges (close < open)
-	// - excludes cafes with unknown (NULL)
+	// Open hours: cafe is open at OpenHour on OpenDate, resolved from cafe_hour
+	// with the tiered rules in CLAUDE.md "Opening hours". Every row is matched
+	// against D (today) and D-1 (yesterday, for overnight spill) and scored by
+	// tier: 1 dated + day, 2 dated + null day, 3 undated + day, 4 undated +
+	// null day. Per (cafe, date) only the lowest tier present is kept; a kept
+	// row with close = true makes that date closed. Then the cafe is open when
+	// - D has a same-day range (open < close, incl. 00:00–23:59) holding T, or
+	//   an overnight range (close < open) with T >= open
+	// - D-1 has an overnight range with T <= close (spill), even if D is closed
+	// Unknown hours (no rows, NULL open/close) never match.
 	if p.OpenHour != nil {
 		ohP := addArg(*p.OpenHour)
+		odP := addArg(p.OpenDate)
 		sb.WriteString(fmt.Sprintf(`
-			AND c.open_hour IS NOT NULL AND c.close_hour IS NOT NULL AND (
-				(c.close_hour > c.open_hour AND %s::time >= c.open_hour AND %s::time <= c.close_hour)
-				OR (c.close_hour < c.open_hour AND (%s::time >= c.open_hour OR %s::time <= c.close_hour)))`,
-			ohP, ohP, ohP, ohP))
+			AND c.id IN (
+				WITH oh_date AS (
+					SELECT dd, prev,
+					       (ARRAY['sun','mon','tue','wed','thu','fri','sat'])[EXTRACT(DOW FROM dd)::int + 1]::day_enum AS dow
+					FROM (VALUES (%[2]s::date, FALSE), (%[2]s::date - 1, TRUE)) v(dd, prev)
+				),
+				oh_match AS (
+					SELECT h.cafe_id, od.prev, h.open_hour, h.close_hour, h.close AS is_closed,
+					       CASE
+					           WHEN h.valid_from IS NOT NULL OR h.valid_until IS NOT NULL
+					               THEN CASE WHEN h.day IS NOT NULL THEN 1 ELSE 2 END
+					           WHEN h.day IS NOT NULL THEN 3
+					           ELSE 4
+					       END AS tier
+					FROM cafe_hour h
+					JOIN oh_date od
+					  ON (h.day IS NULL OR h.day = od.dow)
+					 AND (h.valid_from IS NULL OR h.valid_from <= od.dd)
+					 AND (h.valid_until IS NULL OR h.valid_until >= od.dd)
+				),
+				oh_ranked AS (
+					SELECT *, MIN(tier) OVER (PARTITION BY cafe_id, prev) AS best_tier
+					FROM oh_match
+				),
+				oh_kept AS (
+					SELECT cafe_id, prev, open_hour, close_hour,
+					       BOOL_OR(is_closed) OVER (PARTITION BY cafe_id, prev) AS day_closed
+					FROM oh_ranked
+					WHERE tier = best_tier
+				)
+				SELECT cafe_id FROM oh_kept
+				WHERE NOT day_closed AND open_hour IS NOT NULL AND close_hour IS NOT NULL AND (
+					(NOT prev AND close_hour > open_hour AND %[1]s::time >= open_hour AND %[1]s::time <= close_hour)
+					OR (NOT prev AND close_hour < open_hour AND %[1]s::time >= open_hour)
+					OR (prev AND close_hour < open_hour AND %[1]s::time <= close_hour)))`,
+			ohP, odP))
 	}
 
 	// Weather (OR): the cafe suits at least one of the selected conditions.
@@ -550,8 +598,6 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		SELECT l.id, l.name, %s, l.status, l.gmaps_id,`, localized("$2", "l.description_indo", "l.description"))+`
 		       c.instagram, c.menu,
-		       TO_CHAR(c.open_hour,  'HH24:MI'),
-		       TO_CHAR(c.close_hour, 'HH24:MI'),
 		       cp.price_range_min, cp.price_range_max,
 		       cp.coffee_price_min, cp.coffee_price_max,
 		       cp.snack_price_min,  cp.snack_price_max,
@@ -579,7 +625,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		WHERE l.id = $1 AND l.type = 'cafe'
 	`, locationID, lang).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
-		&row.Instagram, &row.Menu, &row.OpenHour, &row.CloseHour,
+		&row.Instagram, &row.Menu,
 		&row.PriceRangeMin, &row.PriceRangeMax,
 		&row.CoffeePriceMin, &row.CoffeePriceMax,
 		&row.SnackPriceMin, &row.SnackPriceMax,
@@ -594,6 +640,35 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (r *CafeRepository) CafeHoursByLocationID(ctx context.Context, locationID string) ([]CafeHourRow, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT h.day::text,
+		       TO_CHAR(h.open_hour,  'HH24:MI'),
+		       TO_CHAR(h.close_hour, 'HH24:MI'),
+		       TO_CHAR(h.valid_from,  'YYYY-MM-DD'),
+		       TO_CHAR(h.valid_until, 'YYYY-MM-DD'),
+		       h.close
+		FROM cafe_hour h
+		JOIN cafe c ON c.id = h.cafe_id
+		WHERE c.location_id = $1
+		ORDER BY h.id
+	`, locationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CafeHourRow
+	for rows.Next() {
+		var row CafeHourRow
+		if err := rows.Scan(&row.Day, &row.OpenHour, &row.CloseHour, &row.ValidFrom, &row.ValidUntil, &row.Close); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
 }
 
 func (r *CafeRepository) CafeImagesByLocationID(ctx context.Context, locationID, lang string) ([]CafeImageRow, error) {

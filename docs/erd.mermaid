@@ -33,14 +33,26 @@ erDiagram
         int id PK
         text location_id FK "unique"
         text instagram
-        time open_hour
-        time close_hour
         boolean is_featured
         text[] weather "subset of clear|cloudy|rain"
         text phone
         text menu
         text description "about blurb"
         text description_indo
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    CafeHour {
+        int id PK
+        int cafe_id FK "on delete cascade"
+        enum day "null = every day"
+        %%"mon", "tue", "wed", "thu", "fri", "sat", "sun"%%
+        time open_hour
+        time close_hour "< open_hour = overnight"
+        date valid_from "null on both = regular hours"
+        date valid_until "inclusive"
+        boolean close "closed that day"
         timestamp created_at
         timestamp updated_at
     }
@@ -221,6 +233,7 @@ erDiagram
     Tag ||--o{ CafeTag : "has"
     RatingTypeLabel ||--o{ RatingCategory : "labels"
     RatingTypeLabel ||--o{ CafeRating : "types"
+    Cafe ||--o{ CafeHour : "opens"
     Cafe ||--o{ CafeFeed : "has"
     Cafe ||--o{ SourceTarget : "scraped by"
     Cafe ||--o{ SourceSnapshot : "has"
