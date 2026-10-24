@@ -164,7 +164,7 @@ Only the first tier that has rows is used.
 - Overnight spill: an overnight row also covers the early hours of the next day, so an "open now" check at 01:00 Saturday must look at Friday's rows.
 - Timezone: "today" and "now" are always Asia/Jakarta.
 
-In this repo: `service/hours.go` resolves rows in Go for `GET /v1/cafe/:id` (`ResolveHours` → `hours`, the 7 days from today; `ResolveRegularHours` → `regular_hours`, tiers b/c only, mon→sun). In a tier with both, a `close = true` row wins over open rows. The search `open_hour` filter resolves the same tiers in SQL (`repository/cafe.go`, today and yesterday for the spill); keep the two in sync. Jakarta is `time.FixedZone` UTC+7 (the alpine image has no tzdata).
+In this repo: `service/cafe.go` resolves rows in Go for `GET /v1/cafe/:id` (`ResolveHours` → `hours`, the 7 days from today; `ResolveRegularHours` → `regular_hours`, tiers b/c only, mon→sun). In a tier with both, a `close = true` row wins over open rows. The search `open_hour` filter resolves the same tiers in SQL (`repository/cafe.go`, today and yesterday for the spill); keep the two in sync. Jakarta is `time.FixedZone` UTC+7 (the alpine image has no tzdata).
 
 ## API Endpoints
 
