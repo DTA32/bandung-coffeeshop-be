@@ -471,6 +471,11 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		return nil, err
 	}
 
+	hourRows, err := s.repo.CafeHoursByLocationID(ctx, locationID)
+	if err != nil {
+		return nil, err
+	}
+
 	imgs := make([]model.LocationImage, 0, len(images))
 	for _, img := range images {
 		imgs = append(imgs, model.LocationImage{URL: img.URL, Description: img.Alt})
@@ -496,18 +501,18 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 	}
 
 	return &model.CafeDetailResponse{
-		ID:          row.ID,
-		Name:        row.Name,
-		Description: desc,
-		About:       row.About,
-		Status:      row.Status,
-		Images:      imgs,
-		Instagram:   row.Instagram,
-		Menu:        row.Menu,
-		OpenHour:    row.OpenHour,
-		CloseHour:   row.CloseHour,
-		GmapsID:     row.GmapsID,
-		Locations:   loc,
+		ID:           row.ID,
+		Name:         row.Name,
+		Description:  desc,
+		About:        row.About,
+		Status:       row.Status,
+		Images:       imgs,
+		Instagram:    row.Instagram,
+		Menu:         row.Menu,
+		Hours:        ResolveHours(hourRows, time.Now().In(jakarta)),
+		RegularHours: ResolveRegularHours(hourRows),
+		GmapsID:      row.GmapsID,
+		Locations:    loc,
 		Price: model.CafePrice{
 			PriceRangeMin:  row.PriceRangeMin,
 			PriceRangeMax:  row.PriceRangeMax,

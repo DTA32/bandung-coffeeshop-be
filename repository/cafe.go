@@ -105,7 +105,6 @@ type CafeDetailRow struct {
 	ID, Name, Status, Description  string
 	GmapsID                        *string
 	Instagram, Menu                *string
-	OpenHour, CloseHour            *string
 	PriceRangeMin, PriceRangeMax   *int
 	CoffeePriceMin, CoffeePriceMax *int
 	SnackPriceMin, SnackPriceMax   *int
@@ -114,6 +113,15 @@ type CafeDetailRow struct {
 	DistrictID, DistrictName       *string
 	About                          *string
 	UpdatedAt                      string
+}
+
+// CafeHourRow is a raw cafe_hour row: times "HH:MM", dates "YYYY-MM-DD", Day a
+// day_enum value or nil (every day). The service resolves them per date.
+type CafeHourRow struct {
+	Day                   *string
+	OpenHour, CloseHour   *string
+	ValidFrom, ValidUntil *string
+	Close                 bool
 }
 
 type CafeImageRow struct{ URL, Alt string }
@@ -590,8 +598,6 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		SELECT l.id, l.name, %s, l.status, l.gmaps_id,`, localized("$2", "l.description_indo", "l.description"))+`
 		       c.instagram, c.menu,
-		       TO_CHAR(c.open_hour,  'HH24:MI'),
-		       TO_CHAR(c.close_hour, 'HH24:MI'),
 		       cp.price_range_min, cp.price_range_max,
 		       cp.coffee_price_min, cp.coffee_price_max,
 		       cp.snack_price_min,  cp.snack_price_max,
@@ -619,7 +625,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		WHERE l.id = $1 AND l.type = 'cafe'
 	`, locationID, lang).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
-		&row.Instagram, &row.Menu, &row.OpenHour, &row.CloseHour,
+		&row.Instagram, &row.Menu,
 		&row.PriceRangeMin, &row.PriceRangeMax,
 		&row.CoffeePriceMin, &row.CoffeePriceMax,
 		&row.SnackPriceMin, &row.SnackPriceMax,
@@ -634,6 +640,35 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (r *CafeRepository) CafeHoursByLocationID(ctx context.Context, locationID string) ([]CafeHourRow, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT h.day::text,
+		       TO_CHAR(h.open_hour,  'HH24:MI'),
+		       TO_CHAR(h.close_hour, 'HH24:MI'),
+		       TO_CHAR(h.valid_from,  'YYYY-MM-DD'),
+		       TO_CHAR(h.valid_until, 'YYYY-MM-DD'),
+		       h.close
+		FROM cafe_hour h
+		JOIN cafe c ON c.id = h.cafe_id
+		WHERE c.location_id = $1
+		ORDER BY h.id
+	`, locationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CafeHourRow
+	for rows.Next() {
+		var row CafeHourRow
+		if err := rows.Scan(&row.Day, &row.OpenHour, &row.CloseHour, &row.ValidFrom, &row.ValidUntil, &row.Close); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
 }
 
 func (r *CafeRepository) CafeImagesByLocationID(ctx context.Context, locationID, lang string) ([]CafeImageRow, error) {
