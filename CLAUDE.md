@@ -73,6 +73,14 @@ psql -U postgres -d bandung_coffeeshop -v radit_email=<radit's google email> \
 # 12. User reviews cleanup (BCF-29): drops is_subjective / personal_score /
 #     content_indo, moves cafe_rating to UNIQUE (review_id, category_type)
 psql -U postgres -d bandung_coffeeshop -f migrations/012_user_reviews_cleanup.sql
+
+# 13. Per-day opening hours (BCF-19): day_enum + cafe_hour, backfilled from
+#     cafe.open_hour / close_hour as one every-day regular row per cafe
+psql -U postgres -d bandung_coffeeshop -f migrations/013_cafe_hour.sql
+
+# 14. Drops cafe.open_hour / close_hour (BCF-19). Only after be, admin and
+#     scraper are all deployed on cafe_hour
+psql -U postgres -d bandung_coffeeshop -f migrations/014_drop_cafe_open_hour.sql
 ```
 
 Production run order for the user-reviews release: run 010 + 011 **before**
@@ -82,6 +90,11 @@ dropped columns). Until 012 runs, cafe_rating is still UNIQUE on
 `(cafe_id, category_type)`, so a second reviewer's ratings on an already-rated
 cafe fail to save; and after 011 the old admin can no longer create reviews
 (`reviewer_name` is NOT NULL).
+
+Production run order for per-day hours (BCF-19): run 013, deploy this BE,
+`bandung-coffeeshop-admin` and `bandung-coffeeshop-scraper` on `cafe_hour`, then
+run 014. The new BE never reads `cafe.open_hour` / `close_hour`; hours edited by
+an old admin between 013 and its redeploy land in the old columns only.
 
 This repo owns the schema for every BDGCafe service. `bandung-coffeeshop-admin`
 (mission control, `mission-control.bdgcafe.com`) and `bandung-coffeeshop-scraper`
@@ -131,9 +144,27 @@ Currently, this is still in feat/test branch, not merged to main yet.
 
 PostgreSQL with two required extensions: `pg_trgm` (trigram similarity for fuzzy name search) and `postgis` (geographic coordinates). Schema in `migrations/001_init.sql`; ERD in `docs/erd.mermaid`.
 
-Key tables: `location`, `location_image`, `cafe`, `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`, `users` (accounts keyed by `(provider, provider_sub)`; sessions are in Redis, not the DB). Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
+Key tables: `location`, `location_image`, `cafe`, `cafe_hour` (opening hours, see below), `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`, `users` (accounts keyed by `(provider, provider_sub)`; sessions are in Redis, not the DB). Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
 
 Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern. Area/district containment uses PostGIS polygons (`ST_PointOnSurface` / `ST_Contains`).
+
+## Opening hours
+
+Hours live in `cafe_hour` (migration 013; `cafe.open_hour` / `close_hour` are gone after 014). A row has `day` (`day_enum`, null = every day), `open_hour` / `close_hour`, `valid_from` / `valid_until` (null on both = regular hours; otherwise a dated row, `valid_until` inclusive, a single day sets both to that date) and `close`. These rules are shared by be, admin and scraper:
+
+Which rows apply to date D, most specific first:
+  a. Dated rows whose valid_from–valid_until covers D. A row whose day matches D's weekday wins over a row with a null day.
+  b. Undated rows whose day is D's weekday.
+  c. Undated rows whose day is null.
+Only the first tier that has rows is used.
+- Split hours: a tier may have several rows for the same day (for example 08:00–14:00 and 17:00–22:00).
+- Closed: close = true means closed that day; its open/close hours are ignored.
+- Unknown: a day with no matching rows, or with null open/close, has unknown hours.
+- close earlier than open means overnight. 24 hours is 00:00–23:59.
+- Overnight spill: an overnight row also covers the early hours of the next day, so an "open now" check at 01:00 Saturday must look at Friday's rows.
+- Timezone: "today" and "now" are always Asia/Jakarta.
+
+In this repo: `service/hours.go` resolves rows in Go for `GET /v1/cafe/:id` (`ResolveHours` → `hours`, the 7 days from today; `ResolveRegularHours` → `regular_hours`, tiers b/c only, mon→sun). In a tier with both, a `close = true` row wins over open rows. The search `open_hour` filter resolves the same tiers in SQL (`repository/cafe.go`, today and yesterday for the spill); keep the two in sync. Jakarta is `time.FixedZone` UTC+7 (the alpine image has no tzdata).
 
 ## API Endpoints
 
@@ -145,7 +176,7 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/location/:id` — location (area/POI/district) detail
 - `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`), weather filters; sort + pagination)
 - `GET /v1/cafe/random` — one random active cafe ("Surprise me")
-- `GET /v1/cafe/:id` — full cafe detail
+- `GET /v1/cafe/:id` — full cafe detail, incl. resolved `hours` (next 7 days) and `regular_hours` (mon→sun)
 - `GET /v1/cafe/:id/review` — aggregates over visible reviews (average scores, counts, per-category ratings) + tags
 - `GET /v1/cafe/:id/reviews?cursor=` — visible reviews, pinned first, 5 per page (keyset cursor)
 - `GET|POST|PUT|DELETE /v1/cafe/:id/reviews/mine` — the signed-in user's review (RequireUser); writes go to `pending`, DELETE soft-deletes (204)
