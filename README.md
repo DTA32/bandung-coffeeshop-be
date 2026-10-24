@@ -150,6 +150,7 @@ All `/v1` responses use a standard envelope:
 | `GET` | `/v1/cafe/:id/reviews` | Paginated public reviews of a cafe |
 | `GET` / `POST` / `PUT` / `DELETE` | `/v1/cafe/:id/reviews/mine` | Signed-in user's own review |
 | `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
+| `GET` | `/v1/sitemap` | Cafes and SRP counts for the FE sitemap |
 | `GET` | `/v1/cafe/random` | One random active cafe |
 | `GET` | `/v1/auth/google` | Start Google sign-in |
 | `GET` | `/v1/auth/google/callback` | OAuth callback (sets the session cookie) |

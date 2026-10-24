@@ -75,6 +75,10 @@ func main() {
 	filterSvc := service.NewFilterService(filterRepo)
 	filterHdlr := handler.NewFilterHandler(filterSvc)
 
+	sitemapRepo := repository.NewSitemapRepository(pool)
+	sitemapSvc := service.NewSitemapService(sitemapRepo, cafeRepo, filterSvc)
+	sitemapHdlr := handler.NewSitemapHandler(sitemapSvc)
+
 	quicksearchRepo := repository.NewQuicksearchRepository(pool)
 	quicksearchSvc := service.NewQuicksearchService(quicksearchRepo)
 	quicksearchHdlr := handler.NewQuicksearchHandler(quicksearchSvc)
@@ -121,6 +125,7 @@ func main() {
 		v1.DELETE("/cafe/:id/reviews/mine", middleware.RequireUser, reviewHdlr.DeleteMine)
 		v1.GET("/cafe/:id/feed", cafeHdlr.GetFeed)
 		v1.GET("/filters", filterHdlr.Get)
+		v1.GET("/sitemap", sitemapHdlr.Get)
 	}
 
 	log.Printf("starting server on :%s", cfg.AppPort)
