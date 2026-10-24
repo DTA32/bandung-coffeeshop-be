@@ -40,12 +40,12 @@ alter table cafe_hour
 create index idx_cafe_hour_cafe
     on cafe_hour (cafe_id);
 
--- Backfill: the single pair becomes one regular, every-day row. A cafe with
--- only one side set keeps it (the row resolves to unknown hours).
+-- Backfill: the single pair becomes one regular, every-day row. Cafes with
+-- only one side set are skipped (their hours become unknown).
 insert into cafe_hour (cafe_id, open_hour, close_hour)
 select id, open_hour, close_hour
 from cafe
 where open_hour is not null
-   or close_hour is not null;
+  and close_hour is not null;
 
 commit;
