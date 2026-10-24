@@ -50,20 +50,44 @@ type CafeSearchResponse struct {
 }
 
 type CafeDetailResponse struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description *string         `json:"description"`
-	About       *string         `json:"about"`
-	Status      string          `json:"status"`
-	Images      []LocationImage `json:"images"`
-	Instagram   *string         `json:"instagram"`
-	Menu        *string         `json:"menu"`
-	OpenHour    *string         `json:"open_hour"`
-	CloseHour   *string         `json:"close_hour"`
-	GmapsID     *string         `json:"gmaps_id"`
-	Locations   []Location      `json:"locations"`
-	Price       CafePrice       `json:"price"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	Description  *string            `json:"description"`
+	About        *string            `json:"about"`
+	Status       string             `json:"status"`
+	Images       []LocationImage    `json:"images"`
+	Instagram    *string            `json:"instagram"`
+	Menu         *string            `json:"menu"`
+	Hours        []CafeDayHours     `json:"hours"`
+	RegularHours []CafeRegularHours `json:"regular_hours"`
+	GmapsID      *string            `json:"gmaps_id"`
+	Locations    []Location         `json:"locations"`
+	Price        CafePrice          `json:"price"`
+	UpdatedAt    string             `json:"updated_at"`
+}
+
+// HourRange is one opening range, "HH:MM". close < open is overnight; open 24
+// hours is 00:00–23:59.
+type HourRange struct {
+	Open  string `json:"open"`
+	Close string `json:"close"`
+}
+
+// CafeDayHours is a cafe's resolved hours on one date. Special = resolved from
+// a dated row (holiday / special event). Unknown hours: closed false, no ranges.
+type CafeDayHours struct {
+	Date    string      `json:"date"`
+	Day     string      `json:"day"`
+	Closed  bool        `json:"closed"`
+	Special bool        `json:"special"`
+	Ranges  []HourRange `json:"ranges"`
+}
+
+// CafeRegularHours is one weekday of the regular week (undated rows only).
+type CafeRegularHours struct {
+	Day    string      `json:"day"`
+	Closed bool        `json:"closed"`
+	Ranges []HourRange `json:"ranges"`
 }
 
 type CafePrice struct {

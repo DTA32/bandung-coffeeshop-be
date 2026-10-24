@@ -158,7 +158,7 @@ Search and discover cafes. Supports three search modes derived from inputs:
 | `radius_max` | int (meters) | no | `3000` (coords / `cafe` focus), `2000` (`poi` focus) | Positive integer. Only meaningful in radius mode. |
 | `ratings` | int CSV | no | — | Comma-separated rating-bucket ids (one per category type), AND-combined. A cafe matches a bucket when its average score in that category over its [visible reviews](#visible-reviews) (rounded to 2 decimals) lies within the bucket bounds. Two buckets of the same category type are rejected. |
 | `tags` | string CSV | no | — | Comma-separated tag slugs, AND-combined. Unknown slugs are silently ignored. |
-| `open_hour` | string | no | — | `now` (current time in WIB) or a `"HH:MM"` time. Filters to cafes open at that time. |
+| `open_hour` | string | no | — | `now` (current time in Jakarta, WIB) or a `"HH:MM"` time, evaluated on today's Jakarta date. Filters to cafes open at that time per their resolved [opening hours](#opening-hours): today's ranges (same-day, or an overnight range from its open time), plus the early-hours spill of yesterday's overnight ranges (also on a day that is otherwise closed). Unknown hours never match. |
 | `price_min` | int | no | — | `0`–`999999`. |
 | `price_max` | int | no | — | `0`–`999999`. Must be ≥ `price_min`. |
 | `is_featured` | bool | no | — | `true` / `false`. |
@@ -315,8 +315,31 @@ Returns full detail for a single cafe by its location slug.
     ],
     "instagram": "_accio.coffee",
     "menu": "https://example.com/menu.pdf",
-    "open_hour": "08:00",
-    "close_hour": "22:00",
+    "hours": [
+      { "date": "2026-10-24", "day": "sat", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "14:00" }, { "open": "17:00", "close": "23:00" }] },
+      { "date": "2026-10-25", "day": "sun", "closed": true, "special": true, "ranges": [] },
+      { "date": "2026-10-26", "day": "mon", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "date": "2026-10-27", "day": "tue", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "date": "2026-10-28", "day": "wed", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "date": "2026-10-29", "day": "thu", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "date": "2026-10-30", "day": "fri", "closed": false, "special": false,
+        "ranges": [{ "open": "08:00", "close": "02:00" }] }
+    ],
+    "regular_hours": [
+      { "day": "mon", "closed": false, "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "day": "tue", "closed": false, "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "day": "wed", "closed": false, "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "day": "thu", "closed": false, "ranges": [{ "open": "08:00", "close": "22:00" }] },
+      { "day": "fri", "closed": false, "ranges": [{ "open": "08:00", "close": "02:00" }] },
+      { "day": "sat", "closed": false,
+        "ranges": [{ "open": "08:00", "close": "14:00" }, { "open": "17:00", "close": "23:00" }] },
+      { "day": "sun", "closed": false, "ranges": [{ "open": "08:00", "close": "22:00" }] }
+    ],
     "gmaps_id": "ChIJrTLr-GyuEmsRBfy61i59si0",
     "locations": [
       { "id": "bandung-tengah", "name": "Bandung Tengah", "type": "district", "thumbnail": null },
@@ -351,11 +374,16 @@ Returns full detail for a single cafe by its location slug.
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
 | `menu` | string \| null | Either an `http(s)` URL, or a `#image-N` gallery hash (`N` is 1-based, so `#image-1` is the first entry of `images`) meaning "open gallery image N". Passed through untouched; `null` if not set. |
-| `open_hour` / `close_hour` | string \| null | 24-hour format `"HH:MM"`. `null` if not set. A cafe open 24 hours is represented as `open_hour = "00:00"` and `close_hour = "23:59"`. |
+| `hours` | array | The resolved schedule for the 7 days starting today (Jakarta), in date order; see [Opening hours](#opening-hours). `date` is `"YYYY-MM-DD"`, `day` is `mon`…`sun`. `closed` = closed that day (`ranges` is empty). `special` = resolved from a dated row (holiday / special event). Unknown hours: `closed = false`, `ranges = []`. |
+| `regular_hours` | array | The regular week from undated rows only (dated rows ignored), always 7 entries `mon` → `sun`, same `closed` / `ranges` semantics as `hours` (no `date` / `special`). Backs the SEO JSON-LD and meta description. |
+| `ranges[]` | object | `{ "open": "HH:MM", "close": "HH:MM" }`, 24-hour, sorted by `open`; several for split hours. `close` < `open` is an overnight range (closes the next day). Open 24 hours is `00:00`–`23:59`. |
 | `gmaps_id` | string \| null | The cafe's own Google Maps place ID. `null` if not set. |
 | `locations` | array | Ancestor chain of the area/neighbourhood the cafe sits in, outermost first (district, then area). Empty array if coordinates are unset or no matching area is found. |
 | `updated_at` | string | When the cafe was last updated (backs "Last updated"), `"YYYY-MM-DDTHH:MM:SSZ"`. Written by mission control on cafe edits; independent of reviews. |
 | `price.rank` | object \| null | Derived from the median of `price_range_min` and `price_range_max` matched against `price-rank` rating categories. `null` if price data is missing. `type` is the 0-based ordinal of the matched bucket (cheapest = 0). `label` is the bucket's localized description. |
+
+#### Opening hours
+Resolved from the cafe's `cafe_hour` rows with the rules in `CLAUDE.md` ("Opening hours"). For date D, most specific first: (a) dated rows covering D, a row for D's weekday beating a null-day row; (b) undated rows for D's weekday; (c) undated null-day rows. Only the first tier that has rows is used. "Today" is always Asia/Jakarta.
 
 ### Errors
 | Status | `error` | When |
