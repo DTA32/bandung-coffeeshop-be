@@ -998,8 +998,9 @@ then POST a new one. **`204`** with no body.
 Raw material for the FE's `/sitemap.xml`: every cafe with a public page, and
 how many active cafes each SRP location × filter combination matches. It
 returns facts, not URLs: the FE builds the paths (slugs, canonical segment
-order) and decides which SRPs are indexable. Built at most every 15 minutes
-and served from memory in between. No query params; not localized.
+order) and decides which SRPs are indexable. Cached in Redis for 6 hours
+(rebuilt on every request when Redis is disabled). No query params; not
+localized.
 
 ### Success `200`
 

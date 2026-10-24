@@ -76,7 +76,7 @@ func main() {
 	filterHdlr := handler.NewFilterHandler(filterSvc)
 
 	sitemapRepo := repository.NewSitemapRepository(pool)
-	sitemapSvc := service.NewSitemapService(sitemapRepo, cafeRepo, filterSvc)
+	sitemapSvc := service.NewSitemapService(sitemapRepo, cafeRepo, filterSvc, redisCache)
 	sitemapHdlr := handler.NewSitemapHandler(sitemapSvc)
 
 	quicksearchRepo := repository.NewQuicksearchRepository(pool)

@@ -2,18 +2,22 @@ package service
 
 import (
 	"context"
-	"sync"
+	"encoding/json"
+	"log"
 	"time"
 
+	"github.com/dta32/bandung-coffeeshop-be/cache"
 	"github.com/dta32/bandung-coffeeshop-be/constants"
 	"github.com/dta32/bandung-coffeeshop-be/model"
 	"github.com/dta32/bandung-coffeeshop-be/repository"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
+	sitemapKey = "bdgcafe:sitemap"
 	// sitemapTTL is how long a built sitemap is served before it's rebuilt.
-	sitemapTTL = 15 * time.Minute
+	sitemapTTL = 6 * time.Hour
 	// sitemapConcurrency caps the parallel count queries during a build.
 	sitemapConcurrency = 4
 )
@@ -22,14 +26,12 @@ type SitemapService struct {
 	repo    *repository.SitemapRepository
 	cafes   *repository.CafeRepository
 	filters *FilterService
-
-	mu      sync.Mutex
-	cached  *model.SitemapResponse
-	builtAt time.Time
+	cache   *cache.Redis
+	group   singleflight.Group
 }
 
-func NewSitemapService(repo *repository.SitemapRepository, cafes *repository.CafeRepository, filters *FilterService) *SitemapService {
-	return &SitemapService{repo: repo, cafes: cafes, filters: filters}
+func NewSitemapService(repo *repository.SitemapRepository, cafes *repository.CafeRepository, filters *FilterService, redisCache *cache.Redis) *SitemapService {
+	return &SitemapService{repo: repo, cafes: cafes, filters: filters, cache: redisCache}
 }
 
 // srpFilter is one SRP-eligible filter value and the search params it sets.
@@ -45,20 +47,55 @@ type srpLocation struct {
 	apply func(p *repository.CafeSearchParams)
 }
 
-// Get returns the sitemap facts, rebuilding them at most every sitemapTTL.
-// Concurrent callers wait for a running build instead of starting their own.
+// Get returns the sitemap facts. A build is cached in Redis for sitemapTTL so
+// every replica shares it and it survives restarts; without Redis (or on a
+// miss) it's rebuilt. Concurrent misses on one instance share a single build,
+// detached from the caller's context so one cancelled request can't fail the
+// others waiting on it.
 func (s *SitemapService) Get(ctx context.Context) (*model.SitemapResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cached != nil && time.Since(s.builtAt) < sitemapTTL {
-		return s.cached, nil
+	if res := s.fromCache(ctx); res != nil {
+		return res, nil
 	}
-	res, err := s.build(ctx)
+	v, err, _ := s.group.Do("sitemap", func() (any, error) {
+		res, err := s.build(context.WithoutCancel(ctx))
+		if err != nil {
+			return nil, err
+		}
+		s.toCache(context.WithoutCancel(ctx), res)
+		return res, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	s.cached, s.builtAt = res, time.Now()
-	return res, nil
+	return v.(*model.SitemapResponse), nil
+}
+
+func (s *SitemapService) fromCache(ctx context.Context) *model.SitemapResponse {
+	if s.cache == nil {
+		return nil
+	}
+	b, err := s.cache.Get(ctx, sitemapKey)
+	if err != nil {
+		return nil
+	}
+	var res model.SitemapResponse
+	if err := json.Unmarshal(b, &res); err != nil {
+		return nil
+	}
+	return &res
+}
+
+func (s *SitemapService) toCache(ctx context.Context, res *model.SitemapResponse) {
+	if s.cache == nil {
+		return
+	}
+	b, err := json.Marshal(res)
+	if err != nil {
+		return
+	}
+	if err := s.cache.Set(ctx, sitemapKey, b, sitemapTTL); err != nil {
+		log.Printf("sitemap: cache set failed: %v", err)
+	}
 }
 
 func (s *SitemapService) build(ctx context.Context) (*model.SitemapResponse, error) {
