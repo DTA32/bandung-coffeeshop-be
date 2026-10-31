@@ -17,6 +17,7 @@ func NewSitemapRepository(db *pgxpool.Pool) *SitemapRepository {
 type SitemapCafeRow struct {
 	ID        string
 	UpdatedAt string
+	Image     *string
 }
 
 // SitemapLocationRow is an active district / area / poi with its search focus
@@ -29,10 +30,14 @@ type SitemapLocationRow struct {
 }
 
 // Cafes lists every active or closed cafe (both keep a public detail page) with
-// its updated_at, formatted like the cafe detail's.
+// its updated_at, formatted like the cafe detail's, and its first image (the
+// detail's images[0]), nil when it has none.
 func (r *SitemapRepository) Cafes(ctx context.Context) ([]SitemapCafeRow, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT l.id, TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		SELECT l.id, TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       (SELECT li.url FROM location_image li
+		        WHERE li.location_id = l.id
+		        ORDER BY li.display_order ASC, li.id ASC LIMIT 1)
 		FROM cafe c
 		JOIN location l ON l.id = c.location_id
 		WHERE l.status IN ('active', 'closed')
@@ -46,7 +51,7 @@ func (r *SitemapRepository) Cafes(ctx context.Context) ([]SitemapCafeRow, error)
 	cafes := []SitemapCafeRow{}
 	for rows.Next() {
 		var row SitemapCafeRow
-		if err := rows.Scan(&row.ID, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.UpdatedAt, &row.Image); err != nil {
 			return nil, err
 		}
 		cafes = append(cafes, row)

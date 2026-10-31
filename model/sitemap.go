@@ -8,8 +8,9 @@ type SitemapResponse struct {
 }
 
 type SitemapCafe struct {
-	ID        string `json:"id"`
-	UpdatedAt string `json:"updated_at"` // ISO-8601 UTC
+	ID        string  `json:"id"`
+	UpdatedAt string  `json:"updated_at"` // ISO-8601 UTC
+	Image     *string `json:"image"`      // first cafe image URL; nil when it has none
 }
 
 // SitemapSRP is one location × filter combination and how many active cafes

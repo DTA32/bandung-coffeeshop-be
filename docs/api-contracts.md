@@ -1009,7 +1009,8 @@ localized.
   "success": true,
   "data": {
     "cafes": [
-      { "id": "2f-coffee", "updated_at": "2026-10-20T08:12:45Z" }
+      { "id": "2f-coffee", "updated_at": "2026-10-20T08:12:45Z", "image": "https://image.bdgcafe.com/cafe/2f-coffee/front.jpg" },
+      { "id": "kopi-tanpa-foto", "updated_at": "2026-10-18T02:10:00Z", "image": null }
     ],
     "srps": [
       { "locations": [], "filter": { "type": "tag", "slug": "wfc-friendly" }, "count": 42, "last_modified": "2026-10-22T03:00:00Z" },
@@ -1025,6 +1026,7 @@ localized.
 |-------|------|-------|
 | `cafes[]` | array | Every cafe whose location is `active` or `closed`, ordered by id. |
 | `cafes[].updated_at` | string | ISO-8601 UTC, same format as the cafe detail's. |
+| `cafes[].image` | string \| null | The cafe's first image URL (the detail's `images[0].url`); `null` when it has none. |
 | `srps[]` | array | Only combinations with `count > 0`. Filter-only rows first, then location-only, then location × filter. |
 | `srps[].locations` | string[] | Location chain `[district, area?, poi?]`, as in the SRP path; `[]` for a filter-only SRP. Locations whose ancestors don't fill the chain (e.g. a poi outside every area) are left out. |
 | `srps[].filter` | object \| null | `{type: "tag" \| "price" \| "rating", slug}`, the slug from `/v1/filters`; `null` for a location-only SRP. Values without a slug are never listed. |
