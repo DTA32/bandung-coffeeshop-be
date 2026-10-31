@@ -1018,3 +1018,50 @@ then POST a new one. **`204`** with no body.
 | 403 | `origin not allowed` | Disallowed `Origin` |
 | 404 | `cafe not found` / `review not found` | Unknown cafe / no review to delete |
 | 500 | `failed to delete review` | Unexpected server / DB error |
+
+---
+
+## 11. `GET /v1/sitemap`
+
+Raw material for the FE's `/sitemap.xml`: every cafe with a public page, and
+how many active cafes each SRP location × filter combination matches. It
+returns facts, not URLs: the FE builds the paths (slugs, canonical segment
+order) and decides which SRPs are indexable. Cached in Redis for 6 hours
+(rebuilt on every request when Redis is disabled). No query params; not
+localized.
+
+### Success `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "cafes": [
+      { "id": "2f-coffee", "updated_at": "2026-10-20T08:12:45Z", "image": "https://image.bdgcafe.com/cafe/2f-coffee/front.jpg" },
+      { "id": "kopi-tanpa-foto", "updated_at": "2026-10-18T02:10:00Z", "image": null }
+    ],
+    "srps": [
+      { "locations": [], "filter": { "type": "tag", "slug": "wfc-friendly" }, "count": 42, "last_modified": "2026-10-22T03:00:00Z" },
+      { "locations": ["bandung-tengah", "riau"], "filter": null, "count": 18, "last_modified": "2026-10-21T10:30:00Z" },
+      { "locations": ["bandung-tengah", "riau"], "filter": { "type": "rating", "slug": "quiet-noise" }, "count": 4, "last_modified": "2026-10-19T07:45:00Z" }
+    ]
+  }
+}
+```
+
+#### Field semantics
+| Field | Type | Notes |
+|-------|------|-------|
+| `cafes[]` | array | Every cafe whose location is `active` or `closed`, ordered by id. |
+| `cafes[].updated_at` | string | ISO-8601 UTC, same format as the cafe detail's. |
+| `cafes[].image` | string \| null | The cafe's first image URL (the detail's `images[0].url`); `null` when it has none. |
+| `srps[]` | array | Only combinations with `count > 0`. Filter-only rows first, then location-only, then location × filter. |
+| `srps[].locations` | string[] | Location chain `[district, area?, poi?]`, as in the SRP path; `[]` for a filter-only SRP. Locations whose ancestors don't fill the chain (e.g. a poi outside every area) are left out. |
+| `srps[].filter` | object \| null | `{type: "tag" \| "price" \| "rating", slug}`, the slug from `/v1/filters`; `null` for a location-only SRP. Values without a slug are never listed. |
+| `srps[].count` | int | Active cafes matched — equal to `total` from `/v1/search/cafes` for the same location focus (polygon for district / area, 2 km radius for a poi) and filter. |
+| `srps[].last_modified` | string | Newest `updated_at` among the matched cafes (ISO-8601 UTC). |
+
+### Errors
+| Status | `error` | When |
+|--------|---------|------|
+| 500 | `failed to build sitemap` | Unexpected server / DB error |
