@@ -176,6 +176,7 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/location` — list districts
 - `GET /v1/location/:id` — location (area/POI/district) detail
 - `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`), weather filters; sort + pagination)
+- `GET /v1/search/cafes/markers` — map pins for every cafe matching the same filters (no pagination/sort; `{ id, name, coordinates }`, capped at 300)
 - `GET /v1/cafe/random` — one random active cafe ("Surprise me")
 - `GET /v1/cafe/:id` — full cafe detail, incl. resolved `hours` (next 7 days) and `regular_hours` (mon→sun)
 - `GET /v1/cafe/:id/review` — aggregates over visible reviews (average scores, counts, per-category ratings) + tags
