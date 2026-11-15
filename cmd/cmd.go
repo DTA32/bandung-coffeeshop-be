@@ -115,6 +115,7 @@ func main() {
 		v1.GET("/location", locationHdlr.List)
 		v1.GET("/location/:id", locationHdlr.GetByID)
 		v1.GET("/search/cafes", cafeHdlr.Search)
+		v1.GET("/search/cafes/markers", cafeHdlr.Markers)
 		v1.GET("/cafe/random", cafeHdlr.Random)
 		v1.GET("/cafe/:id", cafeHdlr.GetByID)
 		v1.GET("/cafe/:id/review", cafeHdlr.GetReview)

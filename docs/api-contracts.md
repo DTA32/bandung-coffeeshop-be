@@ -290,6 +290,79 @@ GET /v1/search/cafes?weather=cloudy,rain
 
 ---
 
+## 2a. `GET /v1/search/cafes/markers`
+
+Map pins for every cafe matching the current filters. Same filters and search modes as [`GET /v1/search/cafes`](#2-get-v1searchcafes), but built for drawing the map rather than listing: it is **not paginated**, returns only the fields a pin needs (`id`, `name`, `coordinates`), and is capped at a fixed safety limit.
+
+Use this to draw all pins at once (explore map view, Meet in the Middle); use `/v1/search/cafes` for the paginated card list.
+
+### Query params
+
+Accepts exactly the same filter params as `/v1/search/cafes`: `query_id`, `query_type`, `query_coords`, `radius_max`, `ratings`, `tags`, `open_hour`, `price_min`, `price_max`, `is_featured`, `status`, `weather`. Validation and error behaviour are identical.
+
+`page`, `size`, `sort` and `order` are **ignored** — there is no pagination, and ordering is irrelevant for pins. Results are always ordered by cafe id internally so the set is stable across calls.
+
+`status` is accepted for parity with the search endpoint (defaults to `active`); `status=closed` returns closed cafes.
+
+### Behaviour
+
+- Returns **all** matching cafes, up to a hard cap of **300** items. The response never contains more than 300 markers.
+- Cafes without stored coordinates are omitted (a pin needs a location).
+- No `total`, `location_name`, `weather` or other envelope fields — the page already has those from the list call.
+
+### Success `200`
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "anjis-dago",
+      "name": "Kopi Anjis Dago",
+      "coordinates": { "lat": -6.8839, "lng": 107.6132 }
+    }
+  ]
+}
+```
+
+#### Field semantics
+| Field | Type | Notes |
+|-------|------|-------|
+| `data` | array | Up to 300 matching cafes, each a map pin. Empty array when nothing matches. |
+| `data[].id` | string | Cafe location id; link target for the pin. |
+| `data[].name` | string | Cafe name (for the pin tooltip/label). |
+| `data[].coordinates` | object | `{ lat, lng }`. Always present (cafes without coordinates are omitted). |
+
+### Errors
+
+Identical to [`GET /v1/search/cafes`](#2-get-v1searchcafes): bad params give `400`, an unknown `query_id` or rating id gives `404`. A `size`, `page`, `sort` or `order` value is never an error here — those params are ignored, not validated.
+
+| Status | `error` | Trigger |
+|--------|---------|---------|
+| 400 | (same messages as `/v1/search/cafes`) | a malformed filter param |
+| 404 | `focus location not found` | `query_id` does not resolve |
+| 404 | `rating category not found` | a `ratings` id does not resolve |
+| 500 | `markers failed` | Unexpected server / DB error |
+
+### Examples
+
+All active cafes inside an area, filtered by tags:
+```
+GET /v1/search/cafes/markers?query_id=dago&query_type=area&tags=wifi-friendly,quiet
+```
+
+Every cafe within a radius of a point (Meet in the Middle):
+```
+GET /v1/search/cafes/markers?query_coords=-6.9039,107.6186&radius_max=4000
+```
+
+Closed-cafe pins:
+```
+GET /v1/search/cafes/markers?status=closed
+```
+
+---
+
 ## 3. `GET /v1/cafe/:id`
 
 Returns full detail for a single cafe by its location slug.

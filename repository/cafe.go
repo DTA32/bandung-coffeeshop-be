@@ -462,6 +462,77 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	return results, total, nil
 }
 
+// CafeMarkerRow is one map pin from SearchMarkers: id, name and coordinates
+// only. Lat/Lng are non-null because SearchMarkers skips cafes without
+// coordinates.
+type CafeMarkerRow struct {
+	ID   string
+	Name string
+	Lat  float64
+	Lng  float64
+}
+
+// SearchMarkers returns every cafe matching the same filters as Search, as a
+// bare pin (id, name, coordinates), for drawing the map. It differs from
+// Search deliberately: no pagination (no OFFSET, no COUNT(*) OVER()), none of
+// the thumbnail / area / remark / distance subqueries, cafes with null
+// coordinates skipped, ordered by id for a stable result, and p.Size used as a
+// hard LIMIT (the service's safety cap). Sort/Order/Page on p are ignored.
+func (r *CafeRepository) SearchMarkers(ctx context.Context, p CafeSearchParams) ([]CafeMarkerRow, error) {
+	var sb strings.Builder
+	args := make([]any, 0, 8)
+	addArg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	focusPointSQL := "NULL::geometry"
+	if p.FocusLat != nil && p.FocusLng != nil {
+		lngP := addArg(*p.FocusLng)
+		latP := addArg(*p.FocusLat)
+		focusPointSQL = fmt.Sprintf("ST_SetSRID(ST_MakePoint(%s, %s), 4326)", lngP, latP)
+	}
+	var tagsP string
+	if len(p.TagSlugs) > 0 {
+		tagsP = addArg(p.TagSlugs)
+	}
+
+	statusP := addArg(p.Status)
+	sb.WriteString(fmt.Sprintf(`SELECT
+		l.id,
+		l.name,
+		ST_Y(l.coordinates) AS lat,
+		ST_X(l.coordinates) AS lng
+		FROM cafe c
+		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
+		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
+		WHERE l.coordinates IS NOT NULL`, statusP))
+	writeSearchFilters(&sb, p, addArg, focusPointSQL, tagsP)
+
+	sb.WriteString(fmt.Sprintf(`
+		ORDER BY l.id ASC
+		LIMIT %s`, addArg(p.Size)))
+
+	rows, err := r.db.Query(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CafeMarkerRow
+	for rows.Next() {
+		var row CafeMarkerRow
+		if err := rows.Scan(&row.ID, &row.Name, &row.Lat, &row.Lng); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // SearchStats returns how many cafes a search matches (the same number Search
 // reports as its total) and the newest updated_at among them, formatted like the
 // cafe detail's; lastModified is nil when nothing matches. Sort, paging and
