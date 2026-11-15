@@ -486,8 +486,12 @@ func (r *CafeRepository) SearchMarkers(ctx context.Context, p CafeSearchParams) 
 		return fmt.Sprintf("$%d", len(args))
 	}
 
+	// Unlike Search, nothing here selects distance, so the focus point is only
+	// referenced by the radius filter. Binding it in other modes (an area focus
+	// still carries a point) leaves $n unused and Postgres rejects the query
+	// with "could not determine data type of parameter".
 	focusPointSQL := "NULL::geometry"
-	if p.FocusLat != nil && p.FocusLng != nil {
+	if p.Mode == SearchModeRadius && p.FocusLat != nil && p.FocusLng != nil {
 		lngP := addArg(*p.FocusLng)
 		latP := addArg(*p.FocusLat)
 		focusPointSQL = fmt.Sprintf("ST_SetSRID(ST_MakePoint(%s, %s), 4326)", lngP, latP)
