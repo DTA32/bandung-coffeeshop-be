@@ -38,6 +38,9 @@ const (
 	defaultPageSize  = 8
 	maxPageSize      = 50
 	defaultRadiusMax = 3000 // in meters
+	// poiRadiusMax is a poi focus's default radius; the sitemap's SRP counts
+	// use it too.
+	poiRadiusMax = 2000
 )
 
 // jakarta is Asia/Jakarta (WIB, UTC+7, no DST): "today" and "now" for opening
@@ -325,7 +328,7 @@ func (s *CafeService) validate(req *model.CafeSearchRequest) error {
 			defaultValue := defaultRadiusMax
 			req.RadiusMax = &defaultValue
 		} else if req.QueryType == constants.LocationTypePOI {
-			defaultValue := 2000
+			defaultValue := poiRadiusMax
 			req.RadiusMax = &defaultValue
 		}
 	}

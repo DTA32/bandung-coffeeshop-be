@@ -377,7 +377,132 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 
 	sb.WriteString(`
 		WHERE 1=1`)
+	writeSearchFilters(&sb, p, addArg, focusPointSQL, tagsP)
 
+	sb.WriteString(`
+		ORDER BY `)
+	switch p.Sort {
+	case constants.SortUpdatedAt:
+		if p.Order == constants.OrderAsc {
+			sb.WriteString(`c.updated_at ASC`)
+		} else {
+			sb.WriteString(`c.updated_at DESC`)
+		}
+	case constants.SortDistance:
+		if p.Order == constants.OrderDesc {
+			sb.WriteString(`distance_m DESC NULLS LAST`)
+		} else {
+			sb.WriteString(`distance_m ASC NULLS LAST`)
+		}
+	case constants.SortRating:
+		if p.Order == constants.OrderAsc {
+			sb.WriteString(`lr.overall_score ASC NULLS LAST`)
+		} else {
+			sb.WriteString(`lr.overall_score DESC NULLS LAST`)
+		}
+	case constants.SortPriceRange:
+		if p.Order == constants.OrderDesc {
+			sb.WriteString(`cp.price_range_max DESC NULLS LAST`)
+		} else {
+			sb.WriteString(`cp.price_range_min ASC NULLS LAST`)
+		}
+	default:
+		hasImage := `EXISTS (SELECT 1 FROM location_image li WHERE li.location_id = l.id) DESC`
+		if p.Mode == SearchModeRadius {
+			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, ` + hasImage + `, c.updated_at DESC`)
+		} else {
+			sb.WriteString(`c.is_featured DESC, ` + hasImage + `, c.updated_at DESC, distance_m ASC NULLS LAST`)
+		}
+	}
+
+	// Sorting tiebreaker
+	sb.WriteString(`, l.id ASC`)
+
+	sizeP := addArg(p.Size)
+	offsetP := addArg((p.Page - 1) * p.Size)
+	sb.WriteString(fmt.Sprintf(` LIMIT %s OFFSET %s`, sizeP, offsetP))
+
+	rows, err := r.db.Query(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var (
+		results []CafeSearchRow
+		total   int
+	)
+	for rows.Next() {
+		var (
+			row  CafeSearchRow
+			tcnt int64
+		)
+		if err := rows.Scan(
+			&row.ID,
+			&row.Name,
+			&row.Description,
+			&row.Lat,
+			&row.Lng,
+			&row.Thumbnail,
+			&row.Area,
+			&row.PriceRangeMin,
+			&row.PriceRangeMax,
+			&row.Remark,
+			&row.DistanceM,
+			&tcnt,
+		); err != nil {
+			return nil, 0, err
+		}
+		total = int(tcnt)
+		results = append(results, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
+}
+
+// SearchStats returns how many cafes a search matches (the same number Search
+// reports as its total) and the newest updated_at among them, formatted like the
+// cafe detail's; lastModified is nil when nothing matches. Sort, paging and
+// Lang are ignored.
+func (r *CafeRepository) SearchStats(ctx context.Context, p CafeSearchParams) (count int, lastModified *string, err error) {
+	var sb strings.Builder
+	args := make([]any, 0, 8)
+	addArg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	focusPointSQL := "NULL::geometry"
+	if p.FocusLat != nil && p.FocusLng != nil {
+		lngP := addArg(*p.FocusLng)
+		latP := addArg(*p.FocusLat)
+		focusPointSQL = fmt.Sprintf("ST_SetSRID(ST_MakePoint(%s, %s), 4326)", lngP, latP)
+	}
+	var tagsP string
+	if len(p.TagSlugs) > 0 {
+		tagsP = addArg(p.TagSlugs)
+	}
+
+	statusP := addArg(p.Status)
+	sb.WriteString(fmt.Sprintf(`SELECT COUNT(*), TO_CHAR(MAX(c.updated_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM cafe c
+		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
+		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
+		WHERE 1=1`, statusP))
+	writeSearchFilters(&sb, p, addArg, focusPointSQL, tagsP)
+
+	err = r.db.QueryRow(ctx, sb.String(), args...).Scan(&count, &lastModified)
+	return count, lastModified, err
+}
+
+// writeSearchFilters appends the search's filter conditions (location mode,
+// featured, ratings, tags, price, open hour, weather, exclusions) after a
+// WHERE clause. Search and SearchStats share it so a count always agrees with
+// the search total. tagsP is the placeholder already bound to p.TagSlugs ("" when
+// there are none).
+func writeSearchFilters(sb *strings.Builder, p CafeSearchParams, addArg func(any) string, focusPointSQL, tagsP string) {
 	switch p.Mode {
 	case SearchModePolygon:
 		idP := addArg(p.PolygonLocID)
@@ -509,88 +634,6 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 		sb.WriteString(fmt.Sprintf(`
 			AND l.id NOT IN (%s)`, strings.Join(idPs, ", ")))
 	}
-
-	sb.WriteString(`
-		ORDER BY `)
-	switch p.Sort {
-	case constants.SortUpdatedAt:
-		if p.Order == constants.OrderAsc {
-			sb.WriteString(`c.updated_at ASC`)
-		} else {
-			sb.WriteString(`c.updated_at DESC`)
-		}
-	case constants.SortDistance:
-		if p.Order == constants.OrderDesc {
-			sb.WriteString(`distance_m DESC NULLS LAST`)
-		} else {
-			sb.WriteString(`distance_m ASC NULLS LAST`)
-		}
-	case constants.SortRating:
-		if p.Order == constants.OrderAsc {
-			sb.WriteString(`lr.overall_score ASC NULLS LAST`)
-		} else {
-			sb.WriteString(`lr.overall_score DESC NULLS LAST`)
-		}
-	case constants.SortPriceRange:
-		if p.Order == constants.OrderDesc {
-			sb.WriteString(`cp.price_range_max DESC NULLS LAST`)
-		} else {
-			sb.WriteString(`cp.price_range_min ASC NULLS LAST`)
-		}
-	default:
-		hasImage := `EXISTS (SELECT 1 FROM location_image li WHERE li.location_id = l.id) DESC`
-		if p.Mode == SearchModeRadius {
-			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, ` + hasImage + `, c.updated_at DESC`)
-		} else {
-			sb.WriteString(`c.is_featured DESC, ` + hasImage + `, c.updated_at DESC, distance_m ASC NULLS LAST`)
-		}
-	}
-
-	// Sorting tiebreaker
-	sb.WriteString(`, l.id ASC`)
-
-	sizeP := addArg(p.Size)
-	offsetP := addArg((p.Page - 1) * p.Size)
-	sb.WriteString(fmt.Sprintf(` LIMIT %s OFFSET %s`, sizeP, offsetP))
-
-	rows, err := r.db.Query(ctx, sb.String(), args...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var (
-		results []CafeSearchRow
-		total   int
-	)
-	for rows.Next() {
-		var (
-			row  CafeSearchRow
-			tcnt int64
-		)
-		if err := rows.Scan(
-			&row.ID,
-			&row.Name,
-			&row.Description,
-			&row.Lat,
-			&row.Lng,
-			&row.Thumbnail,
-			&row.Area,
-			&row.PriceRangeMin,
-			&row.PriceRangeMax,
-			&row.Remark,
-			&row.DistanceM,
-			&tcnt,
-		); err != nil {
-			return nil, 0, err
-		}
-		total = int(tcnt)
-		results = append(results, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-	return results, total, nil
 }
 
 func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang string) (*CafeDetailRow, error) {
