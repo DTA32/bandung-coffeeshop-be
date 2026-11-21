@@ -123,7 +123,7 @@ There are seven domains — `location`, `cafe`, `review`, `filter`, `quicksearch
 - `middleware/auth.go` — `LoadUser` on the whole `/v1` group: reads the `bdg_session` cookie (no cookie → no Redis/DB hit), resolves the user, drops sessions of deactivated users, degrades to anonymous on any error. `RequireUser` → 401. `CurrentUser(c)` reads the user from the Gin context — use it in handlers that need the signed-in user.
 - `middleware/origin.go` — `RequireAllowedOrigin`: 403 for POST/PUT/DELETE whose `Origin` is present and not in `ALLOWED_ORIGINS`
 - `service/auth.go` — Google sign-in (state + PKCE round-tripped in the `bdg_oauth` cookie), user upsert, session issue/lookup/revoke. Sessions: `session:<sha256(token)>` → user id and `user_sessions:<id>` set, both a fixed 30-day TTL; only the hash is stored. Auth routes answer 503 when Google creds or Redis are missing
-- `repository/review.go` — the shared "visible review" SQL fragments (`visibleReviewJoin` + `visibleReviewCond`: approved, and partnership or active author); use them in every public review read/aggregate (review list, `/review` aggregates, search `ratings` filter and `sort=rating`). Never select `is_subjective` / `personal_score` / `content_indo` (dropped by migration 012). Own-review writes replace the review's `cafe_rating` rows in one transaction
+- `repository/review.go` — the shared "visible review" SQL fragments (`visibleReviewJoin` + `visibleReviewCond`: approved, and partnership or active author); use them in every public review read/aggregate (review list, `/reviews/summary` aggregates, search `ratings` filter and `sort=rating`). Never select `is_subjective` / `personal_score` / `content_indo` (dropped by migration 012). Own-review writes replace the review's `cafe_rating` rows in one transaction
 - `service/sitemap.go` — facts for the FE's `/sitemap.xml`: cafes, plus a count for every SRP location × filter pair. Counts go through `CafeRepository.SearchStats`, which shares `writeSearchFilters` with `Search`, so they always equal the search total; add new search conditions to `writeSearchFilters`, not to `Search` itself. Built with bounded concurrency and cached in Redis (`bdgcafe:sitemap`) for 6 hours, shared by every replica; without Redis each request rebuilds it
 - `service/weather.go` — Bandung's current weather from weatherapi.com, cached 30 min in Redis (plus an in-process copy and a 24 h last-known fallback); folds provider condition codes into `clear` / `cloudy` / `rain`
 - `handler/` — Gin HTTP layer; parses/validates params, calls service, maps domain errors to HTTP status, responds via helpers. Each handler defines a consumer interface over its service (the seam used for unit tests).
@@ -188,9 +188,9 @@ See `docs/api-contracts.md` for full request/response schemas.
 - `GET /v1/search/cafes` — cafe discovery (polygon / radius / global modes; tag, rating, price, open-hour, featured, status (`active`/`closed`), weather filters; sort + pagination)
 - `GET /v1/search/cafes/markers` — map pins for every cafe matching the same filters (no pagination/sort; `{ id, name, coordinates }`, capped at 300)
 - `GET /v1/cafe/random` — one random active cafe ("Surprise me")
-- `GET /v1/cafe/:id` — full cafe detail, incl. resolved `hours` (next 7 days) and `regular_hours` (mon→sun)
-- `GET /v1/cafe/:id/review` — aggregates over visible reviews (average scores, counts, per-category ratings) + tags
+- `GET /v1/cafe/:id` — full cafe detail, incl. resolved `hours` (next 7 days), `regular_hours` (mon→sun) and visible `tags`
 - `GET /v1/cafe/:id/reviews?cursor=` — visible reviews, pinned first, 5 per page (keyset cursor)
+- `GET /v1/cafe/:id/reviews/summary` — aggregates over visible reviews (average scores, counts, per-category ratings)
 - `GET|POST|PUT|DELETE /v1/cafe/:id/reviews/mine` — the signed-in user's review (RequireUser); writes go to `pending`, DELETE soft-deletes (204)
 - `GET /v1/cafe/:id/feed` — latest updates feed (up to 10 visible, unexpired `cafe_feed` entries)
 - `GET /v1/filters?enrich_content=<bool>` — available filter options (tags, rating categories, price tiers, weather)

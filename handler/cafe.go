@@ -260,17 +260,3 @@ func (h *CafeHandler) GetFeed(c *gin.Context) {
 	}
 	helper.Success(c, res)
 }
-
-func (h *CafeHandler) GetReview(c *gin.Context) {
-	id := c.Param("id")
-	res, err := h.svc.GetReviewByID(c.Request.Context(), id, helper.Lang(c))
-	if err != nil {
-		if errors.Is(err, repository.ErrCafeNotFound) {
-			helper.Error(c, http.StatusNotFound, err.Error())
-		} else {
-			helper.Error(c, http.StatusInternalServerError, "failed to fetch review")
-		}
-		return
-	}
-	helper.Success(c, res)
-}
