@@ -21,7 +21,7 @@ from cafe c
 join location l on l.id = c.location_id
 left join cafe_price p on p.cafe_id = c.id
 left join lateral (select max(updated_at) at from cafe_hour where cafe_id = c.id) h on true
-left join lateral (select max(updated_at) at from cafe_feed where cafe_id = c.id and visible) f on true
+left join lateral (select max(published_at) at from cafe_feed where cafe_id = c.id and visible) f on true
 left join lateral (select max(updated_at) at from cafe_review where cafe_id = c.id and status = 'approved') rv on true
 left join lateral (select max(created_at) at from cafe_tag where cafe_id = c.id) t on true
 left join lateral (select max(updated_at) at from location_image where location_id = c.location_id) i on true;
@@ -34,7 +34,7 @@ create index idx_cafe_hour_cafe_updated
     on cafe_hour (cafe_id asc, updated_at desc);
 
 create index idx_cafe_feed_cafe_updated
-    on cafe_feed (cafe_id asc, updated_at desc)
+    on cafe_feed (cafe_id asc, published_at desc)
     where visible;
 
 create index idx_cafe_review_cafe_updated
