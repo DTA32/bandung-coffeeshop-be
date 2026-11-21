@@ -334,3 +334,94 @@ func (r *ReviewRepository) SoftDelete(ctx context.Context, cafeID, userID int) e
 	}
 	return nil
 }
+
+// ReviewAggregateRow summarises a cafe's visible reviews. Scores are averages
+// rounded to 2 decimals, nil when no visible review carries that score.
+type ReviewAggregateRow struct {
+	OverallScore       *float64
+	TotalReviewCount   int
+	OverallReviewCount int
+	WFCScore           *float64
+	WFCReviewCount     int
+}
+
+type CafeRatingRow struct {
+	CategoryType string
+	TypeLabel    string
+	Score        float64
+	Description  string
+	RangeName    string
+	RangeDesc    string
+	LowerBound   float64
+	UpperBound   float64
+	Slug         *string
+}
+
+func (r *ReviewRepository) ReviewAggregatesByLocationID(ctx context.Context, locationID string) (*ReviewAggregateRow, error) {
+	var row ReviewAggregateRow
+	err := r.db.QueryRow(ctx, `
+		SELECT ROUND(AVG(rv.overall_score), 2)::float8, COUNT(*), COUNT(rv.overall_score),
+		       ROUND(AVG(rv.wfc_score), 2)::float8, COUNT(rv.wfc_score)
+		FROM cafe_review rv
+		JOIN cafe c ON c.id = rv.cafe_id
+		`+visibleReviewJoin+`
+		WHERE c.location_id = $1 AND `+visibleReviewCond, locationID).Scan(
+		&row.OverallScore, &row.TotalReviewCount, &row.OverallReviewCount,
+		&row.WFCScore, &row.WFCReviewCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// RatingsByLocationID averages each rating category over the cafe's
+// visible reviews (rounded to 2 decimals, the precision of the bucket bounds)
+// and joins every bucket of that category. The per-cafe description is the
+// override of the highest-ranked visible review that has one (pinned first,
+// then most recently updated).
+func (r *ReviewRepository) RatingsByLocationID(ctx context.Context, locationID, lang string) ([]CafeRatingRow, error) {
+	override := localized("$2", "cr.short_description_override_indo", "cr.short_description_override")
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		WITH agg AS (
+		    SELECT cr.category_type,
+		           ROUND(AVG(cr.score), 2)::float8 AS score,
+		           (ARRAY_AGG(%s ORDER BY rv.is_pinned DESC, rv.updated_at DESC, rv.id DESC)
+		               FILTER (WHERE COALESCE(%s, '') <> ''))[1] AS description
+		    FROM cafe_rating cr
+		    JOIN cafe_review rv ON rv.id = cr.review_id
+		    JOIN cafe c ON c.id = rv.cafe_id
+		    %s
+		    WHERE c.location_id = $1 AND %s
+		    GROUP BY cr.category_type
+		)
+		SELECT agg.category_type, COALESCE(%s, ''), agg.score,
+		       COALESCE(agg.description, ''),
+		       %s, %s, rc.lower_bound, rc.upper_bound, rc.slug
+		FROM agg
+		JOIN rating_category rc ON rc.type = agg.category_type
+		LEFT JOIN rating_type_label rtl ON rtl.type = agg.category_type
+		ORDER BY agg.category_type, rc.lower_bound
+	`, override, override, visibleReviewJoin, visibleReviewCond,
+		localized("$2", "rtl.label_indo", "rtl.label"),
+		localized("$2", "rc.name_indo", "rc.name"),
+		localized("$2", "rc.short_description_indo", "rc.short_description")), locationID, lang)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CafeRatingRow
+	for rows.Next() {
+		var row CafeRatingRow
+		if err := rows.Scan(
+			&row.CategoryType, &row.TypeLabel, &row.Score, &row.Description,
+			&row.RangeName, &row.RangeDesc,
+			&row.LowerBound, &row.UpperBound, &row.Slug,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}

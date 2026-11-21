@@ -145,9 +145,9 @@ All `/v1` responses use a standard envelope:
 | `GET` | `/v1/location` | List districts |
 | `GET` | `/v1/location/:id` | Detail for an area / POI / district |
 | `GET` | `/v1/search/cafes` | Cafe discovery with polygon, radius, or global mode |
-| `GET` | `/v1/cafe/:id` | Full detail for a single cafe |
-| `GET` | `/v1/cafe/:id/review` | Review aggregates and ratings for a single cafe |
+| `GET` | `/v1/cafe/:id` | Full detail for a single cafe, incl. tags |
 | `GET` | `/v1/cafe/:id/reviews` | Paginated public reviews of a cafe |
+| `GET` | `/v1/cafe/:id/reviews/summary` | Review aggregates and ratings for a single cafe |
 | `GET` / `POST` / `PUT` / `DELETE` | `/v1/cafe/:id/reviews/mine` | Signed-in user's own review |
 | `GET` | `/v1/filters` | Available filter options (tags, rating categories) |
 | `GET` | `/v1/sitemap` | Cafes and SRP counts for the FE sitemap |
@@ -178,10 +178,10 @@ GET /v1/search/cafes?query_id=dago&query_type=area&tags=wifi-friendly
 # Radius search from coordinates, sorted by distance
 GET /v1/search/cafes?query_coords=-6.9039,107.6186&radius_max=2000&sort=distance
 
-# Cafe detail and review
+# Cafe detail and reviews
 GET /v1/cafe/accio-coffee
-GET /v1/cafe/accio-coffee/review
 GET /v1/cafe/accio-coffee/reviews
+GET /v1/cafe/accio-coffee/reviews/summary
 ```
 
 ## License

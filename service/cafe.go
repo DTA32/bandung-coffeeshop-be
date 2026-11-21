@@ -526,6 +526,15 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 		return nil, err
 	}
 
+	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID, lang)
+	if err != nil {
+		return nil, err
+	}
+	tags := make([]model.CafeTag, 0, len(tagRows))
+	for _, t := range tagRows {
+		tags = append(tags, model.CafeTag{Name: t.Name, Slug: t.Slug})
+	}
+
 	imgs := make([]model.LocationImage, 0, len(images))
 	for _, img := range images {
 		imgs = append(imgs, model.LocationImage{URL: img.URL, Description: img.Alt})
@@ -574,6 +583,7 @@ func (s *CafeService) GetByID(ctx context.Context, locationID, lang string) (*mo
 			FoodPriceMax:   row.FoodPriceMax,
 			Rank:           rank,
 		},
+		Tags:      tags,
 		UpdatedAt: row.UpdatedAt,
 	}, nil
 }
@@ -603,71 +613,6 @@ func (s *CafeService) GetFeedByID(ctx context.Context, locationID string) ([]mod
 		})
 	}
 	return items, nil
-}
-
-func (s *CafeService) GetReviewByID(ctx context.Context, locationID, lang string) (*model.CafeReviewResponse, error) {
-	exists, err := s.repo.CafeExistsByLocationID(ctx, locationID)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, repository.ErrCafeNotFound
-	}
-
-	agg, err := s.repo.CafeReviewAggregatesByLocationID(ctx, locationID)
-	if err != nil {
-		return nil, err
-	}
-
-	tagRows, err := s.repo.CafeTagsByLocationID(ctx, locationID, lang)
-	if err != nil {
-		return nil, err
-	}
-
-	ratingRows, err := s.repo.CafeRatingsByLocationID(ctx, locationID, lang)
-	if err != nil {
-		return nil, err
-	}
-
-	tags := make([]model.CafeTag, 0, len(tagRows))
-	for _, t := range tagRows {
-		tags = append(tags, model.CafeTag{Name: t.Name, Slug: t.Slug})
-	}
-
-	ratings := make(model.RatingsResponse)
-	for _, r := range ratingRows {
-		entry, ok := ratings[r.CategoryType]
-		if !ok {
-			entry = model.RatingEntry{
-				DisplayName: r.TypeLabel,
-				Score:       r.Score,
-				Description: r.Description,
-				Range:       []model.RatingRange{},
-			}
-		}
-		ratingRange := model.RatingRange{
-			Name:        r.RangeName,
-			Description: r.RangeDesc,
-			LowerBound:  r.LowerBound,
-			UpperBound:  r.UpperBound,
-		}
-		if r.Score >= r.LowerBound && r.Score <= r.UpperBound && r.Slug != nil {
-			slug := fmt.Sprintf("%s-%s", *r.Slug, r.CategoryType)
-			ratingRange.Slug = &slug
-		}
-		entry.Range = append(entry.Range, ratingRange)
-		ratings[r.CategoryType] = entry
-	}
-
-	return &model.CafeReviewResponse{
-		OverallScore:       agg.OverallScore,
-		TotalReviewCount:   agg.TotalReviewCount,
-		OverallReviewCount: agg.OverallReviewCount,
-		WFCScore:           agg.WFCScore,
-		WFCReviewCount:     agg.WFCReviewCount,
-		Tags:               tags,
-		Ratings:            ratings,
-	}, nil
 }
 
 func ParseCoords(s string) (*model.Coordinates, error) {

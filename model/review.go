@@ -20,6 +20,17 @@ type ReviewListResponse struct {
 	NextCursor *string      `json:"next_cursor"`
 }
 
+// ReviewSummaryResponse aggregates a cafe's visible reviews. Returned by
+// GET /v1/cafe/:id/reviews/summary.
+type ReviewSummaryResponse struct {
+	OverallScore       *float64        `json:"overall_score"`
+	TotalReviewCount   int             `json:"total_review_count"`
+	OverallReviewCount int             `json:"overall_review_count"`
+	WFCScore           *float64        `json:"wfc_score"`
+	WFCReviewCount     int             `json:"wfc_review_count"`
+	Ratings            RatingsResponse `json:"ratings"`
+}
+
 // MyReview is the signed-in user's own review, in any non-deleted status.
 type MyReview struct {
 	ReviewItem
