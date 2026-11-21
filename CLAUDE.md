@@ -81,6 +81,10 @@ psql -U postgres -d bandung_coffeeshop -f migrations/013_cafe_hour.sql
 # 14. Drops cafe.open_hour / close_hour (BCF-19). Only after be, admin and
 #     scraper are all deployed on cafe_hour
 psql -U postgres -d bandung_coffeeshop -f migrations/014_drop_cafe_open_hour.sql
+
+# 15. cafe_last_modified view + child-table indexes (BCF-44). Additive; run
+#     before deploying the BE that reads it
+psql -U postgres -d bandung_coffeeshop -f migrations/015_cafe_last_modified.sql
 ```
 
 Production run order for the user-reviews release: run 010 + 011 **before**
@@ -148,6 +152,12 @@ PostgreSQL with two required extensions: `pg_trgm` (trigram similarity for fuzzy
 Key tables: `location`, `location_image`, `cafe`, `cafe_hour` (opening hours, see below), `cafe_review`, `tag`, `cafe_tag`, `cafe_price`, `rating_type_label`, `rating_category`, `cafe_rating`, `cafe_feed`, `users` (accounts keyed by `(provider, provider_sub)`; sessions are in Redis, not the DB). Collector tables (written by the scraper, reviewed in mission control): `source_target`, `source_snapshot`, `change_proposal`, `scrape_run`.
 
 Location name search uses a GIN trigram index and `similarity()` ordering — keep queries consistent with this pattern. Area/district containment uses PostGIS polygons (`ST_PointOnSurface` / `ST_Contains`).
+
+## Last modified
+
+A cafe's "last updated" time is defined once, by the `cafe_last_modified(cafe_id, last_modified)` view (migration 015): the greatest of `cafe.updated_at`, `location.updated_at`, `cafe_price.updated_at`, max `cafe_hour.updated_at`, max `cafe_feed.updated_at` where `visible`, max `cafe_review.updated_at` where `status = 'approved'`, max `cafe_tag.created_at` and max `location_image.updated_at`. `cafe.updated_at` itself means only "the cafe row changed". Everything shown, sorted on or put in the sitemap reads the view: cafe detail `updated_at`, `sort=updated_at` and the `default` sort tie-break in `Search`, sitemap `cafes[].updated_at` and `SearchStats` (SRP `last_modified`). Never read `c.updated_at` for these. Read the view through `lastModifiedSQL` (`repository/cafe.go`), a per-cafe scalar subquery; never `JOIN cafe_last_modified`, which makes the planner compute the whole view for every outer row (the sitemap build timed out on dev).
+
+Not counted: deleted child rows (so the value can move backwards), review approve / pin, tag reorder / visibility, `cafe_rating` (covered by its review), the global `tag` / `rating_category` tables, and feed `published_at` (can be backdated). A plain view can't be indexed, so those sorts run in memory; if that gets slow, the fallback is a trigger-maintained table, not a materialized view.
 
 ## Opening hours
 

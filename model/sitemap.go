@@ -19,7 +19,7 @@ type SitemapSRP struct {
 	Locations    []string       `json:"locations"` // [district, area?, poi?]; empty for a filter-only SRP
 	Filter       *SitemapFilter `json:"filter"`    // nil for a location-only SRP
 	Count        int            `json:"count"`
-	LastModified string         `json:"last_modified"` // newest updated_at among the matched cafes
+	LastModified string         `json:"last_modified"` // newest cafe_last_modified among the matched cafes
 }
 
 type SitemapFilter struct {
