@@ -71,6 +71,9 @@ unrecognised the API falls back to Indonesian (`id`). The header applies to ever
 - radius mode: featured first, then `distance` ↑, then cafes with at least one image, then `updated_at` ↓
 - otherwise: featured first, then cafes with at least one image, then `updated_at` ↓, then `distance` ↑
 
+`updated_at` here (the sort and the `default` tie-break) is the cafe's derived
+last-modified time, the same value as the cafe detail's `updated_at`.
+
 Ties are broken by `id` ↑.
 
 `rating` sorts by the cafe's average `overall_score` over its [visible reviews](#visible-reviews); cafes without one sort last.
@@ -452,7 +455,7 @@ Returns full detail for a single cafe by its location slug.
 | `ranges[]` | object | `{ "open": "HH:MM", "close": "HH:MM" }`, 24-hour, sorted by `open`; several for split hours. `close` < `open` is an overnight range (closes the next day). Open 24 hours is `00:00`–`23:59`. |
 | `gmaps_id` | string \| null | The cafe's own Google Maps place ID. `null` if not set. |
 | `locations` | array | Ancestor chain of the area/neighbourhood the cafe sits in, outermost first (district, then area). Empty array if coordinates are unset or no matching area is found. |
-| `updated_at` | string | When the cafe was last updated (backs "Last updated"), `"YYYY-MM-DDTHH:MM:SSZ"`. Written by mission control on cafe edits; independent of reviews. |
+| `updated_at` | string | When anything on the cafe's page last changed (backs "Last updated" and JSON-LD `dateModified`), `"YYYY-MM-DDTHH:MM:SSZ"`. Derived from the `cafe_last_modified` view (BCF-44): the newest of `cafe.updated_at`, `location.updated_at`, `cafe_price.updated_at`, and the newest `cafe_hour.updated_at`, visible `cafe_feed.updated_at`, approved `cafe_review.updated_at`, `cafe_tag.created_at` and `location_image.updated_at`. Deleted child rows don't count, so it can move backwards. |
 | `price.rank` | object \| null | Derived from the median of `price_range_min` and `price_range_max` matched against `price-rank` rating categories. `null` if price data is missing. `type` is the 0-based ordinal of the matched bucket (cheapest = 0). `label` is the bucket's localized description. |
 
 #### Opening hours
@@ -927,8 +930,9 @@ no body, even when there was no session or Redis is down. Subject to the
 Signed-in users can write one review per cafe (BCF-30). New and edited reviews
 are `pending` until approved in mission control; only
 [visible reviews](#visible-reviews) are public. Partnership reviews are entered
-by an admin and have no user account. None of these endpoints change the
-cafe's `updated_at`.
+by an admin and have no user account. A review counts toward the cafe's
+derived `updated_at` only while it is `approved`, with its own `updated_at`;
+approving or pinning doesn't change it.
 
 ### Review status
 | Value | Meaning |
@@ -1126,13 +1130,13 @@ localized.
 | Field | Type | Notes |
 |-------|------|-------|
 | `cafes[]` | array | Every cafe whose location is `active` or `closed`, ordered by id. |
-| `cafes[].updated_at` | string | ISO-8601 UTC, same format as the cafe detail's. |
+| `cafes[].updated_at` | string | The cafe's derived last-modified time, equal to the cafe detail's `updated_at` (ISO-8601 UTC). |
 | `cafes[].image` | string \| null | The cafe's first image URL (the detail's `images[0].url`); `null` when it has none. |
 | `srps[]` | array | Only combinations with `count > 0`. Filter-only rows first, then location-only, then location × filter. |
 | `srps[].locations` | string[] | Location chain `[district, area?, poi?]`, as in the SRP path; `[]` for a filter-only SRP. Locations whose ancestors don't fill the chain (e.g. a poi outside every area) are left out. |
 | `srps[].filter` | object \| null | `{type: "tag" \| "price" \| "rating", slug}`, the slug from `/v1/filters`; `null` for a location-only SRP. Values without a slug are never listed. |
 | `srps[].count` | int | Active cafes matched — equal to `total` from `/v1/search/cafes` for the same location focus (polygon for district / area, 2 km radius for a poi) and filter. |
-| `srps[].last_modified` | string | Newest `updated_at` among the matched cafes (ISO-8601 UTC). |
+| `srps[].last_modified` | string | Newest derived `updated_at` (as on the cafe detail) among the matched cafes (ISO-8601 UTC). |
 
 ### Errors
 | Status | `error` | When |

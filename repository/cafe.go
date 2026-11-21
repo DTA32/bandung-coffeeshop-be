@@ -363,6 +363,7 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	statusP := addArg(p.Status)
 	sb.WriteString(fmt.Sprintf(`FROM cafe c
 		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
+		JOIN cafe_last_modified v ON v.cafe_id = c.id
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id`, statusP))
 
 	if p.Sort == constants.SortRating {
@@ -384,9 +385,9 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	switch p.Sort {
 	case constants.SortUpdatedAt:
 		if p.Order == constants.OrderAsc {
-			sb.WriteString(`c.updated_at ASC`)
+			sb.WriteString(`v.last_modified ASC`)
 		} else {
-			sb.WriteString(`c.updated_at DESC`)
+			sb.WriteString(`v.last_modified DESC`)
 		}
 	case constants.SortDistance:
 		if p.Order == constants.OrderDesc {
@@ -409,9 +410,9 @@ func (r *CafeRepository) Search(ctx context.Context, p CafeSearchParams) ([]Cafe
 	default:
 		hasImage := `EXISTS (SELECT 1 FROM location_image li WHERE li.location_id = l.id) DESC`
 		if p.Mode == SearchModeRadius {
-			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, ` + hasImage + `, c.updated_at DESC`)
+			sb.WriteString(`c.is_featured DESC, distance_m ASC NULLS LAST, ` + hasImage + `, v.last_modified DESC`)
 		} else {
-			sb.WriteString(`c.is_featured DESC, ` + hasImage + `, c.updated_at DESC, distance_m ASC NULLS LAST`)
+			sb.WriteString(`c.is_featured DESC, ` + hasImage + `, v.last_modified DESC, distance_m ASC NULLS LAST`)
 		}
 	}
 
@@ -538,7 +539,7 @@ func (r *CafeRepository) SearchMarkers(ctx context.Context, p CafeSearchParams) 
 }
 
 // SearchStats returns how many cafes a search matches (the same number Search
-// reports as its total) and the newest updated_at among them, formatted like the
+// reports as its total) and the newest last_modified among them, formatted like the
 // cafe detail's; lastModified is nil when nothing matches. Sort, paging and
 // Lang are ignored.
 func (r *CafeRepository) SearchStats(ctx context.Context, p CafeSearchParams) (count int, lastModified *string, err error) {
@@ -561,9 +562,10 @@ func (r *CafeRepository) SearchStats(ctx context.Context, p CafeSearchParams) (c
 	}
 
 	statusP := addArg(p.Status)
-	sb.WriteString(fmt.Sprintf(`SELECT COUNT(*), TO_CHAR(MAX(c.updated_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+	sb.WriteString(fmt.Sprintf(`SELECT COUNT(*), TO_CHAR(MAX(v.last_modified), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM cafe c
 		JOIN location l ON l.id = c.location_id AND l.status = %s::location_status_enum
+		JOIN cafe_last_modified v ON v.cafe_id = c.id
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
 		WHERE 1=1`, statusP))
 	writeSearchFilters(&sb, p, addArg, focusPointSQL, tagsP)
@@ -722,9 +724,10 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		       cp.food_price_min,   cp.food_price_max,
 		       area.id, area.name, district.id, district.name,
 		       NULLIF(BTRIM(`+localized("$2", "c.description_indo", "c.description")+`), ''),
-		       TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		       TO_CHAR(v.last_modified, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM location l
 		JOIN cafe c ON c.location_id = l.id
+		JOIN cafe_last_modified v ON v.cafe_id = c.id
 		LEFT JOIN cafe_price cp ON cp.cafe_id = c.id
 		LEFT JOIN LATERAL (
 		    SELECT a.id, a.name, a.gmaps_id
