@@ -65,7 +65,10 @@ func NewCafeHandler(svc *service.CafeService) *CafeHandler {
 	return &CafeHandler{svc: svc}
 }
 
-func (h *CafeHandler) Search(c *gin.Context) {
+// parseSearchFilters parses the filter query params shared by the search and
+// markers endpoints (everything except page/size/sort/order). On a bad param
+// it writes a 400 and returns ok=false; callers must return immediately.
+func (h *CafeHandler) parseSearchFilters(c *gin.Context) (model.CafeSearchRequest, bool) {
 	req := model.CafeSearchRequest{
 		QueryID:   c.Query("query_id"),
 		QueryType: c.Query("query_type"),
@@ -74,15 +77,13 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		Status:    c.Query("status"),
 		Weather:   parseCSV(c.Query("weather")),
 		Lang:      helper.Lang(c),
-		Sort:      c.Query("sort"),
-		Order:     c.Query("order"),
 	}
 
 	if raw := c.Query("ratings"); raw != "" {
 		ids, err := parseIntCSV(raw)
 		if err != nil {
 			helper.Error(c, http.StatusBadRequest, "invalid ratings")
-			return
+			return req, false
 		}
 		req.RatingIDs = ids
 	}
@@ -91,7 +92,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v < 0 || v > 999999 {
 			helper.Error(c, http.StatusBadRequest, "invalid price_min")
-			return
+			return req, false
 		}
 		req.PriceMin = &v
 	}
@@ -100,7 +101,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v < 0 || v > 999999 {
 			helper.Error(c, http.StatusBadRequest, "invalid price_max")
-			return
+			return req, false
 		}
 		req.PriceMax = &v
 	}
@@ -109,7 +110,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		coords, err := service.ParseCoords(raw)
 		if err != nil {
 			helper.Error(c, http.StatusBadRequest, "invalid query_coords")
-			return
+			return req, false
 		}
 		req.QueryCoords = coords
 	}
@@ -118,7 +119,7 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v <= 0 {
 			helper.Error(c, http.StatusBadRequest, "invalid radius_max")
-			return
+			return req, false
 		}
 		req.RadiusMax = &v
 	}
@@ -127,10 +128,51 @@ func (h *CafeHandler) Search(c *gin.Context) {
 		v, err := strconv.ParseBool(raw)
 		if err != nil {
 			helper.Error(c, http.StatusBadRequest, "invalid is_featured")
-			return
+			return req, false
 		}
 		req.IsFeatured = &v
 	}
+
+	return req, true
+}
+
+// writeSearchError maps a search/markers service error to its HTTP status.
+// The genericMessage is the 500 fallback text.
+func writeSearchError(c *gin.Context, err error, genericMessage string) {
+	switch {
+	case errors.Is(err, service.ErrInvalidLocationType),
+		errors.Is(err, service.ErrInvalidSort),
+		errors.Is(err, service.ErrInvalidOrder),
+		errors.Is(err, service.ErrInvalidCoords),
+		errors.Is(err, service.ErrCoordsConflictsWithID),
+		errors.Is(err, service.ErrQueryTypeWithoutID),
+		errors.Is(err, service.ErrIDWithoutType),
+		errors.Is(err, service.ErrDistanceSortNeedsCoords),
+		errors.Is(err, service.ErrInvalidRatingCategory),
+		errors.Is(err, service.ErrRatingSlugWithoutType),
+		errors.Is(err, service.ErrInvalidOpenHour),
+		errors.Is(err, service.ErrInvalidStatus),
+		errors.Is(err, service.ErrInvalidPriceRange),
+		errors.Is(err, service.ErrDuplicateRatingType),
+		errors.Is(err, service.ErrInvalidWeather),
+		errors.Is(err, service.ErrWeatherCurrentExclusive):
+		helper.Error(c, http.StatusBadRequest, err.Error())
+	case errors.Is(err, repository.ErrFocusNotFound),
+		errors.Is(err, repository.ErrRatingCategoryNotFound),
+		errors.Is(err, repository.ErrTagNotFound):
+		helper.Error(c, http.StatusNotFound, err.Error())
+	default:
+		helper.Error(c, http.StatusInternalServerError, genericMessage)
+	}
+}
+
+func (h *CafeHandler) Search(c *gin.Context) {
+	req, ok := h.parseSearchFilters(c)
+	if !ok {
+		return
+	}
+	req.Sort = c.Query("sort")
+	req.Order = c.Query("order")
 
 	if raw := c.Query("page"); raw != "" {
 		v, err := strconv.Atoi(raw)
@@ -152,31 +194,25 @@ func (h *CafeHandler) Search(c *gin.Context) {
 
 	res, err := h.svc.Search(c.Request.Context(), req)
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrInvalidLocationType),
-			errors.Is(err, service.ErrInvalidSort),
-			errors.Is(err, service.ErrInvalidOrder),
-			errors.Is(err, service.ErrInvalidCoords),
-			errors.Is(err, service.ErrCoordsConflictsWithID),
-			errors.Is(err, service.ErrQueryTypeWithoutID),
-			errors.Is(err, service.ErrIDWithoutType),
-			errors.Is(err, service.ErrDistanceSortNeedsCoords),
-			errors.Is(err, service.ErrInvalidRatingCategory),
-			errors.Is(err, service.ErrRatingSlugWithoutType),
-			errors.Is(err, service.ErrInvalidOpenHour),
-			errors.Is(err, service.ErrInvalidStatus),
-			errors.Is(err, service.ErrInvalidPriceRange),
-			errors.Is(err, service.ErrDuplicateRatingType),
-			errors.Is(err, service.ErrInvalidWeather),
-			errors.Is(err, service.ErrWeatherCurrentExclusive):
-			helper.Error(c, http.StatusBadRequest, err.Error())
-		case errors.Is(err, repository.ErrFocusNotFound),
-			errors.Is(err, repository.ErrRatingCategoryNotFound),
-			errors.Is(err, repository.ErrTagNotFound):
-			helper.Error(c, http.StatusNotFound, err.Error())
-		default:
-			helper.Error(c, http.StatusInternalServerError, "search failed")
-		}
+		writeSearchError(c, err, "search failed")
+		return
+	}
+
+	helper.Success(c, res)
+}
+
+// Markers returns every cafe matching the given filters as a map pin. It
+// accepts the same filter params as Search; page, size, sort and order are
+// ignored. See GET /v1/search/cafes/markers in docs/api-contracts.md.
+func (h *CafeHandler) Markers(c *gin.Context) {
+	req, ok := h.parseSearchFilters(c)
+	if !ok {
+		return
+	}
+
+	res, err := h.svc.Markers(c.Request.Context(), req)
+	if err != nil {
+		writeSearchError(c, err, "markers failed")
 		return
 	}
 

@@ -34,9 +34,11 @@ var (
 )
 
 const (
-	defaultPageNum   = 1
-	defaultPageSize  = 8
-	maxPageSize      = 50
+	defaultPageNum  = 1
+	defaultPageSize = 8
+	maxPageSize     = 50
+	// maxMarkers is the safety cap on the unpaginated markers endpoint.
+	maxMarkers       = 300
 	defaultRadiusMax = 3000 // in meters
 	// poiRadiusMax is a poi focus's default radius; the sitemap's SRP counts
 	// use it too.
@@ -112,6 +114,75 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 		return nil, err
 	}
 
+	params, focus, tagRow, weather, err := s.resolveSearchParams(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+	params.Sort = req.Sort
+	params.Order = req.Order
+	params.Page = req.Page
+	params.Size = req.Size
+
+	rows, total, err := s.repo.Search(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	cafes := make([]model.CafeDetail, 0, len(rows))
+	emitDistance := req.QueryCoords != nil
+	for _, r := range rows {
+		var coords *model.Coordinates
+		if r.Lat != nil && r.Lng != nil {
+			coords = &model.Coordinates{Lat: *r.Lat, Lng: *r.Lng}
+		}
+		var distance *int
+		if emitDistance {
+			distance = r.DistanceM
+		}
+		cafes = append(cafes, model.CafeDetail{
+			ID:          r.ID,
+			Name:        r.Name,
+			Description: r.Description,
+			Coordinates: coords,
+			Thumbnail:   r.Thumbnail,
+			Area:        r.Area,
+			PriceRange:  formatPriceRange(req.Lang, r.PriceRangeMin, r.PriceRangeMax),
+			Distance:    distance,
+			Remark:      r.Remark,
+		})
+	}
+
+	locationName, formattedName := formatLocationLabel(req.Lang, focus, req.QueryCoords)
+	// Raw coords keep the "near Selected Spot" label but expose the containing
+	// area / district name when there is one.
+	if focus == nil && req.QueryCoords != nil {
+		locationName, err = s.repo.LocationNameAt(ctx, req.QueryCoords.Lat, req.QueryCoords.Lng)
+		if err != nil {
+			return nil, err
+		}
+	}
+	searchDescription := s.buildSearchDescription(&req, focus, tagRow)
+
+	return &model.CafeSearchResponse{
+		Total:                 total,
+		LocationName:          locationName,
+		FormattedLocationName: formattedName,
+		SearchDescription:     searchDescription,
+		Locations:             buildBreadcrumb(focus),
+		Cafes:                 cafes,
+		Page:                  req.Page,
+		Size:                  req.Size,
+		Weather:               weather,
+	}, nil
+}
+
+// resolveSearchParams turns a validated search request into repository filter
+// params, shared by Search and Markers. It resolves the focus location, rating
+// buckets, tag slugs, open-hour, price, weather=current and the search mode,
+// and fills Status, IsFeatured and Lang. It does NOT set Sort/Order/Page/Size
+// (markers ignore them; Search sets them itself). It also returns the resolved
+// focus, the single tag (for Search's description) and the resolved weather.
+func (s *CafeService) resolveSearchParams(ctx context.Context, req *model.CafeSearchRequest) (repository.CafeSearchParams, *repository.FocusLocation, *repository.Tag, *model.Weather, error) {
 	var (
 		focus  *repository.FocusLocation
 		tagRow *repository.Tag
@@ -122,7 +193,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	if req.QueryID != "" {
 		focus, err = s.repo.ResolveFocus(ctx, req.QueryID, req.QueryType, req.Lang)
 		if err != nil {
-			return nil, err
+			return params, nil, nil, nil, err
 		}
 	}
 
@@ -130,17 +201,17 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	// score per category, so two buckets of the same type can never both match;
 	// reject that as a bad request rather than silently returning nothing.
 	if len(req.RatingIDs) > 0 {
-		cats, err := s.repo.RatingCategoriesByIDs(ctx, req.RatingIDs)
-		if err != nil {
-			return nil, err
+		cats, cerr := s.repo.RatingCategoriesByIDs(ctx, req.RatingIDs)
+		if cerr != nil {
+			return params, nil, nil, nil, cerr
 		}
 		if len(cats) != len(req.RatingIDs) {
-			return nil, repository.ErrRatingCategoryNotFound
+			return params, nil, nil, nil, repository.ErrRatingCategoryNotFound
 		}
 		seen := make(map[string]struct{}, len(cats))
 		for _, rc := range cats {
 			if _, dup := seen[rc.Type]; dup {
-				return nil, ErrDuplicateRatingType
+				return params, nil, nil, nil, ErrDuplicateRatingType
 			}
 			seen[rc.Type] = struct{}{}
 			params.RatingFilters = append(params.RatingFilters, repository.RatingFilterParam{
@@ -159,7 +230,7 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 			if errors.Is(terr, repository.ErrTagNotFound) {
 				continue
 			}
-			return nil, terr
+			return params, nil, nil, nil, terr
 		}
 		params.TagSlugs = append(params.TagSlugs, t.Slug)
 		tagRow = t
@@ -226,62 +297,38 @@ func (s *CafeService) Search(ctx context.Context, req model.CafeSearchRequest) (
 	params.IsFeatured = req.IsFeatured
 	params.Status = req.Status
 	params.Lang = req.Lang
-	params.Sort = req.Sort
-	params.Order = req.Order
-	params.Page = req.Page
-	params.Size = req.Size
 
-	rows, total, err := s.repo.Search(ctx, params)
+	return params, focus, tagRow, weather, nil
+}
+
+// Markers resolves the same filters as Search and returns every matching cafe
+// as a pin (id, name, coordinates), capped at maxMarkers. Pagination, sort and
+// order are ignored; cafes without coordinates are skipped by the repository.
+func (s *CafeService) Markers(ctx context.Context, req model.CafeSearchRequest) ([]model.CafeMarker, error) {
+	if err := s.validate(&req); err != nil {
+		return nil, err
+	}
+
+	params, _, _, _, err := s.resolveSearchParams(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+	params.Size = maxMarkers
+
+	rows, err := s.repo.SearchMarkers(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	cafes := make([]model.CafeDetail, 0, len(rows))
-	emitDistance := req.QueryCoords != nil
+	markers := make([]model.CafeMarker, 0, len(rows))
 	for _, r := range rows {
-		var coords *model.Coordinates
-		if r.Lat != nil && r.Lng != nil {
-			coords = &model.Coordinates{Lat: *r.Lat, Lng: *r.Lng}
-		}
-		var distance *int
-		if emitDistance {
-			distance = r.DistanceM
-		}
-		cafes = append(cafes, model.CafeDetail{
+		markers = append(markers, model.CafeMarker{
 			ID:          r.ID,
 			Name:        r.Name,
-			Description: r.Description,
-			Coordinates: coords,
-			Thumbnail:   r.Thumbnail,
-			Area:        r.Area,
-			PriceRange:  formatPriceRange(req.Lang, r.PriceRangeMin, r.PriceRangeMax),
-			Distance:    distance,
-			Remark:      r.Remark,
+			Coordinates: model.Coordinates{Lat: r.Lat, Lng: r.Lng},
 		})
 	}
-
-	locationName, formattedName := formatLocationLabel(req.Lang, focus, req.QueryCoords)
-	// Raw coords keep the "near Selected Spot" label but expose the containing
-	// area / district name when there is one.
-	if focus == nil && req.QueryCoords != nil {
-		locationName, err = s.repo.LocationNameAt(ctx, req.QueryCoords.Lat, req.QueryCoords.Lng)
-		if err != nil {
-			return nil, err
-		}
-	}
-	searchDescription := s.buildSearchDescription(&req, focus, tagRow)
-
-	return &model.CafeSearchResponse{
-		Total:                 total,
-		LocationName:          locationName,
-		FormattedLocationName: formattedName,
-		SearchDescription:     searchDescription,
-		Locations:             buildBreadcrumb(focus),
-		Cafes:                 cafes,
-		Page:                  req.Page,
-		Size:                  req.Size,
-		Weather:               weather,
-	}, nil
+	return markers, nil
 }
 
 // buildBreadcrumb returns the focus location's ancestor chain, outermost to

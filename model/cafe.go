@@ -37,6 +37,14 @@ type CafeDetail struct {
 	Remark      *string      `json:"remark"`
 }
 
+// CafeMarker is a map pin: the minimum a client needs to draw a cafe on the
+// map and link to it. Returned by GET /v1/search/cafes/markers.
+type CafeMarker struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Coordinates Coordinates `json:"coordinates"`
+}
+
 type CafeSearchResponse struct {
 	Total                 int          `json:"total"`
 	LocationName          string       `json:"location_name"`
