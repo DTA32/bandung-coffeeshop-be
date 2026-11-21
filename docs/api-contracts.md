@@ -450,7 +450,7 @@ Returns full detail for a single cafe by its location slug.
 | `id` | string | Location slug, same as the `:id` path param. |
 | `description` | string \| null | Address / description text. `null` if not set. |
 | `about` | string \| null | Editorial "about" blurb for the cafe (localized; falls back to English). `null` when empty. |
-| `status` | string | Location status: `active`, `closed`, or `deleted`. |
+| `status` | string | Location status: `active` or `closed`. Deleted cafes return 404. |
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
 | `menu` | string \| null | Either an `http(s)` URL, or a `#image-N` gallery hash (`N` is 1-based, so `#image-1` is the first entry of `images`) meaning "open gallery image N". Passed through untouched; `null` if not set. |

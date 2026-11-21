@@ -724,7 +724,7 @@ func (r *CafeRepository) CafeByLocationID(ctx context.Context, locationID, lang 
 		      AND ST_Within(l.coordinates, d.coordinates)
 		    ORDER BY d.id LIMIT 1
 		) district ON TRUE
-		WHERE l.id = $1 AND l.type = 'cafe'
+		WHERE l.id = $1 AND l.type = 'cafe' AND l.status <> 'deleted'
 	`, locationID, lang).Scan(
 		&row.ID, &row.Name, &row.Description, &row.Status, &row.GmapsID,
 		&row.Instagram, &row.Menu,
