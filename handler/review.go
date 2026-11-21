@@ -36,6 +36,19 @@ func (h *ReviewHandler) List(c *gin.Context) {
 	helper.Success(c, res)
 }
 
+func (h *ReviewHandler) Summary(c *gin.Context) {
+	res, err := h.svc.Summary(c.Request.Context(), c.Param("id"), helper.Lang(c))
+	if err != nil {
+		if errors.Is(err, repository.ErrCafeNotFound) {
+			helper.Error(c, http.StatusNotFound, err.Error())
+		} else {
+			helper.Error(c, http.StatusInternalServerError, "failed to fetch review summary")
+		}
+		return
+	}
+	helper.Success(c, res)
+}
+
 // GetMine and the write handlers below sit behind middleware.RequireUser.
 func (h *ReviewHandler) GetMine(c *gin.Context) {
 	u, _ := middleware.CurrentUser(c)

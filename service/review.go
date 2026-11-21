@@ -26,6 +26,58 @@ func NewReviewService(repo *repository.ReviewRepository) *ReviewService {
 	return &ReviewService{repo: repo}
 }
 
+// Summary aggregates the cafe's visible reviews: average scores, counts and
+// the per-category ratings (localized by lang).
+func (s *ReviewService) Summary(ctx context.Context, locationID, lang string) (*model.ReviewSummaryResponse, error) {
+	if _, err := s.repo.CafeIDByLocationID(ctx, locationID); err != nil {
+		return nil, err
+	}
+
+	agg, err := s.repo.ReviewAggregatesByLocationID(ctx, locationID)
+	if err != nil {
+		return nil, err
+	}
+
+	ratingRows, err := s.repo.RatingsByLocationID(ctx, locationID, lang)
+	if err != nil {
+		return nil, err
+	}
+
+	ratings := make(model.RatingsResponse)
+	for _, r := range ratingRows {
+		entry, ok := ratings[r.CategoryType]
+		if !ok {
+			entry = model.RatingEntry{
+				DisplayName: r.TypeLabel,
+				Score:       r.Score,
+				Description: r.Description,
+				Range:       []model.RatingRange{},
+			}
+		}
+		ratingRange := model.RatingRange{
+			Name:        r.RangeName,
+			Description: r.RangeDesc,
+			LowerBound:  r.LowerBound,
+			UpperBound:  r.UpperBound,
+		}
+		if r.Score >= r.LowerBound && r.Score <= r.UpperBound && r.Slug != nil {
+			slug := fmt.Sprintf("%s-%s", *r.Slug, r.CategoryType)
+			ratingRange.Slug = &slug
+		}
+		entry.Range = append(entry.Range, ratingRange)
+		ratings[r.CategoryType] = entry
+	}
+
+	return &model.ReviewSummaryResponse{
+		OverallScore:       agg.OverallScore,
+		TotalReviewCount:   agg.TotalReviewCount,
+		OverallReviewCount: agg.OverallReviewCount,
+		WFCScore:           agg.WFCScore,
+		WFCReviewCount:     agg.WFCReviewCount,
+		Ratings:            ratings,
+	}, nil
+}
+
 // List returns one page of the cafe's visible reviews. cursor is the opaque
 // next_cursor of the previous page ("" = first page).
 func (s *ReviewService) List(ctx context.Context, locationID, cursor string) (*model.ReviewListResponse, error) {

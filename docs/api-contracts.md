@@ -81,7 +81,7 @@ Ties are broken by `id` ↑.
 ### Visible reviews
 A review is publicly visible when its `status` is `approved` and it is either a
 partnership review (no user account) or written by a user whose account is
-still active. Every public review read and aggregate (review list, `/review`
+still active. Every public review read and aggregate (review list, `/reviews/summary`
 aggregates, `ratings` search filter, `sort=rating`) counts only visible reviews.
 
 ### Order (`order`)
@@ -435,6 +435,10 @@ Returns full detail for a single cafe by its location slug.
         "label": "Bandung pricing - affordable for most"
       }
     },
+    "tags": [
+      { "name": "WFC Friendly", "slug": "wfc-friendly" },
+      { "name": "Reading", "slug": "reading" }
+    ],
     "updated_at": "2026-05-03T09:55:59Z"
   }
 }
@@ -446,7 +450,7 @@ Returns full detail for a single cafe by its location slug.
 | `id` | string | Location slug, same as the `:id` path param. |
 | `description` | string \| null | Address / description text. `null` if not set. |
 | `about` | string \| null | Editorial "about" blurb for the cafe (localized; falls back to English). `null` when empty. |
-| `status` | string | Location status: `active`, `closed`, or `deleted`. |
+| `status` | string | Location status: `active` or `closed`. Deleted cafes return 404. |
 | `images` | array | Ordered by `display_order`. Empty array if none. `description` is the image's alt text. |
 | `instagram` | string \| null | Instagram handle without `@`. |
 | `menu` | string \| null | Either an `http(s)` URL, or a `#image-N` gallery hash (`N` is 1-based, so `#image-1` is the first entry of `images`) meaning "open gallery image N". Passed through untouched; `null` if not set. |
@@ -455,6 +459,7 @@ Returns full detail for a single cafe by its location slug.
 | `ranges[]` | object | `{ "open": "HH:MM", "close": "HH:MM" }`, 24-hour, sorted by `open`; several for split hours. `close` < `open` is an overnight range (closes the next day). Open 24 hours is `00:00`–`23:59`. |
 | `gmaps_id` | string \| null | The cafe's own Google Maps place ID. `null` if not set. |
 | `locations` | array | Ancestor chain of the area/neighbourhood the cafe sits in, outermost first (district, then area). Empty array if coordinates are unset or no matching area is found. |
+| `tags` | array | Visible tags for this cafe, localized, most recently updated first. `slug` is `null` for display-only tags. Empty array if none. Moved here from the removed `/v1/cafe/:id/review` (BCF-48). |
 | `updated_at` | string | When anything on the cafe's page last changed (backs "Last updated" and JSON-LD `dateModified`), `"YYYY-MM-DDTHH:MM:SSZ"`. Derived from the `cafe_last_modified` view (BCF-44): the newest of `cafe.updated_at`, `location.updated_at`, `cafe_price.updated_at`, and the newest `cafe_hour.updated_at`, visible `cafe_feed.updated_at`, approved `cafe_review.updated_at`, `cafe_tag.created_at` and `location_image.updated_at`. Deleted child rows don't count, so it can move backwards. |
 | `price.rank` | object \| null | Derived from the median of `price_range_min` and `price_range_max` matched against `price-rank` rating categories. `null` if price data is missing. `type` is the 0-based ordinal of the matched bucket (cheapest = 0). `label` is the bucket's localized description. |
 
@@ -474,12 +479,14 @@ GET /v1/cafe/accio-coffee
 
 ---
 
-## 4. `GET /v1/cafe/:id/review`
+## 4. `GET /v1/cafe/:id/reviews/summary`
 
-Aggregates over the cafe's [visible reviews](#visible-reviews), plus the cafe's
-tags. A cafe with no visible review returns zero counts, `null` scores and
-empty `ratings` (not an error). The individual reviews are served by
-[`GET /v1/cafe/:id/reviews`](#101-get-v1cafeidreviews).
+Aggregates over the cafe's [visible reviews](#visible-reviews). A cafe with no
+visible review returns zero counts, `null` scores and empty `ratings` (not an
+error). The individual reviews are served by
+[`GET /v1/cafe/:id/reviews`](#101-get-v1cafeidreviews); the cafe's tags are on
+[`GET /v1/cafe/:id`](#3-get-v1cafeid). Replaces `GET /v1/cafe/:id/review`
+(removed in BCF-48). Labels are localized via `Accept-Language`.
 
 ### Path params
 | Name | Type | Notes |
@@ -497,10 +504,6 @@ empty `ratings` (not an error). The individual reviews are served by
     "overall_review_count": 2,
     "wfc_score": 4.2,
     "wfc_review_count": 1,
-    "tags": [
-      { "name": "WFC Friendly", "slug": "wfc-friendly" },
-      { "name": "Reading", "slug": "reading" }
-    ],
     "ratings": {
       "vibe": {
         "display_name": "Vibe",
@@ -527,7 +530,6 @@ With no visible review:
     "overall_review_count": 0,
     "wfc_score": null,
     "wfc_review_count": 0,
-    "tags": [],
     "ratings": {}
   }
 }
@@ -541,7 +543,6 @@ With no visible review:
 | `overall_review_count` | int | Visible reviews that carry an `overall_score`. |
 | `wfc_score` | number \| null | Average work-from-cafe score, rounded to 2 decimals. `null` when none has one. |
 | `wfc_review_count` | int | Visible reviews that carry a `wfc_score`. |
-| `tags` | array | Visible tags for this cafe (independent of reviews). `slug` is `null` for display-only tags. |
 | `ratings` | object | Map of rating category type → entry. A category is present when at least one visible review rated it, whether or not any review has text. |
 | `ratings[type].display_name` | string | Localized label for the category type. |
 | `ratings[type].score` | number | Average score in this category over visible reviews, rounded to 2 decimals. |
@@ -559,12 +560,12 @@ review text now lives on the individual reviews, the cafe blurb on
 ### Errors
 | Status | `error` | When |
 |--------|---------|------|
-| 404 | `cafe not found` | No cafe with the given `id` exists |
-| 500 | `failed to fetch review` | Unexpected server / DB error |
+| 404 | `cafe not found` | No cafe with the given `id` exists, or it is deleted |
+| 500 | `failed to fetch review summary` | Unexpected server / DB error |
 
 ### Example
 ```
-GET /v1/cafe/accio-coffee/review
+GET /v1/cafe/accio-coffee/reviews/summary
 ```
 
 ---
