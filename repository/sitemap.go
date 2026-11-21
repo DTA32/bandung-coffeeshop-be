@@ -30,16 +30,17 @@ type SitemapLocationRow struct {
 }
 
 // Cafes lists every active or closed cafe (both keep a public detail page) with
-// its updated_at, formatted like the cafe detail's, and its first image (the
-// detail's images[0]), nil when it has none.
+// its cafe_last_modified time (the cafe detail's updated_at), formatted like the
+// detail's, and its first image (the detail's images[0]), nil when it has none.
 func (r *SitemapRepository) Cafes(ctx context.Context) ([]SitemapCafeRow, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT l.id, TO_CHAR(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		SELECT l.id, TO_CHAR(v.last_modified, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		       (SELECT li.url FROM location_image li
 		        WHERE li.location_id = l.id
 		        ORDER BY li.display_order ASC, li.id ASC LIMIT 1)
 		FROM cafe c
 		JOIN location l ON l.id = c.location_id
+		JOIN cafe_last_modified v ON v.cafe_id = c.id
 		WHERE l.status IN ('active', 'closed')
 		ORDER BY l.id
 	`)
